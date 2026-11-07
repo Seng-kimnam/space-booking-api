@@ -63,8 +63,16 @@ npm run start:dev
 | http://localhost:3000/api/docs | Swagger UI (disabled when `NODE_ENV=production`) |
 | http://localhost:5050 | pgAdmin (server host: `db`, port `5432`) |
 | http://localhost:8025 | Mailpit inbox |
+| http://localhost:3001 | Grafana: logs via Loki (Explore → `{service_name="space-booking-api"}`) |
 
-Full infrastructure details (start/stop, volumes, ports): [`infrastructure/README.md`](infrastructure/README.md).
+### Logs (Grafana + Loki + Alloy)
+
+The API uses NestJS's built-in `Logger`. In development, set `LOG_FILE=logs/app.log` in `.env` (and run `mkdir -p logs` once):
+the console stays readable, and a JSON copy goes to `logs/app.log`, which Grafana Alloy ships to Loki.
+In production the API logs JSON to stdout (`LOG_FORMAT=json`) and Alloy reads the container logs.
+Setup and queries: [`infrastructure/README.md#logging--monitoring`](infrastructure/README.md#logging--monitoring).
+
+Full infrastructure details (start/stop, volumes, ports, production stack): [`infrastructure/README.md`](infrastructure/README.md).
 
 ## Scripts
 
@@ -93,7 +101,8 @@ npm run migration:revert # local dev database only
 
 ```text
 src/
-├── configuration/     # registerAs configs (app, database, redis, mail, swagger), loaded globally
+├── configuration/     # registerAs configs (app, database, redis, mail, logger, swagger), loaded globally
+├── logger/            # AppLogger: built-in ConsoleLogger + optional JSON file output
 ├── database/
 │   ├── migrations/    # TypeORM migrations (generated, never edited after merge)
 │   ├── seeds/
@@ -102,7 +111,8 @@ src/
 ├── app.module.ts
 └── main.ts            # global prefix /api/v1, Swagger
 infrastructure/
-└── docker/development/docker-compose.yml
+├── docker/{development,production}/docker-compose.yml
+└── monitoring/        # Loki, Alloy and Grafana config
 ```
 
 Team conventions and domain rules (no double-booking, UTC timestamps, etc.) are in [`AGENTS.md`](AGENTS.md).
