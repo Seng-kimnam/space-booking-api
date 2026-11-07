@@ -1,12 +1,24 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
+export interface HealthResponse {
+  status: 'ok';
+  message: string;
+  timestamp: string;
+  uptime: number;
+}
+
+@ApiTags('health')
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  @Get('health')
+  @ApiOkResponse({ description: 'The API is up and running.' })
+  getHealth(): HealthResponse {
+    return {
+      status: 'ok',
+      message: 'Space Booking API is running successfully',
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+    };
   }
 }
