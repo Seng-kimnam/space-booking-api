@@ -1,21 +1,18 @@
 import { Module } from '@nestjs/common';
-import { createObserveModule } from '@nestjs/observe';
+import { ConfigModule, ConfigType } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
+import { configurations, databaseConfig } from './configuration';
 
 @Module({
   imports: [
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'space-booking-api',
+    // Global: database, redis and mail config are injectable in every module.
+    ConfigModule.forRoot({ isGlobal: true, load: configurations }),
+    TypeOrmModule.forRootAsync({
+      inject: [databaseConfig.KEY],
+      useFactory: (db: ConfigType<typeof databaseConfig>) => db,
     }),
   ],
   controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
