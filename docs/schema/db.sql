@@ -136,7 +136,7 @@ CREATE TABLE places (
   address      varchar(255)     NOT NULL,
   lat          double precision,
   lng          double precision,
-  timezone     varchar(64)      NOT NULL,                -- IANA, validated in the app
+  timezone     varchar(64)      NOT NULL DEFAULT 'Asia/Phnom_Penh',  -- IANA, validated in the app
   is_active    boolean          NOT NULL DEFAULT true,
   created_at   timestamptz      NOT NULL DEFAULT now(),
   updated_at   timestamptz      NOT NULL DEFAULT now(),

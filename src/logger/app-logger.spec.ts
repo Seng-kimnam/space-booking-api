@@ -37,9 +37,17 @@ describe('AppLogger', () => {
     await flush();
 
     const [first, second] = readLines(file);
-    expect(first).toMatchObject({ level: 'log', message: 'hello', context: 'Bootstrap' });
+    expect(first).toMatchObject({
+      level: 'log',
+      message: 'hello',
+      context: 'Bootstrap',
+    });
     expect(typeof first.timestamp).toBe('number');
-    expect(second).toMatchObject({ level: 'warn', message: 'careful', context: 'Bookings' });
+    expect(second).toMatchObject({
+      level: 'warn',
+      message: 'careful',
+      context: 'Bookings',
+    });
   });
 
   it('keeps console output when a file is configured', async () => {
@@ -59,7 +67,11 @@ describe('AppLogger', () => {
     await flush();
 
     const [entry] = readLines(file);
-    expect(entry).toMatchObject({ level: 'error', message: 'boom', context: 'Bookings' });
+    expect(entry).toMatchObject({
+      level: 'error',
+      message: 'boom',
+      context: 'Bookings',
+    });
     expect(String(entry.stack)).toContain('Error: boom');
     expect(stderr).toHaveBeenCalled();
   });

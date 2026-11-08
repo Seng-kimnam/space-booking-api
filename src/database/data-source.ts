@@ -15,6 +15,9 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: [join(__dirname, '..', '**', '*.entity.{ts,js}')],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
   migrationsTableName: 'migrations',
+  // UUID PKs default to gen_random_uuid() (pgcrypto), matching docs/schema/db.sql,
+  // instead of TypeORM's default uuid-ossp extension.
+  uuidExtension: 'pgcrypto',
   // Schema changes go through migrations only (AGENTS.md section 6).
   synchronize: false,
 };
