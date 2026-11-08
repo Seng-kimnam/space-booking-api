@@ -17,6 +17,7 @@ dotenv.config();
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthGuard],
-  exports: [AuthService],
+  // JwtModule and AuthGuard exported so other modules can use @UseGuards(AuthGuard).
+  exports: [AuthService, AuthGuard, JwtModule],
 })
 export class AuthModule {}
