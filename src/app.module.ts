@@ -3,6 +3,7 @@ import { ConfigModule, ConfigType } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { configurations, databaseConfig } from './configuration';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { configurations, databaseConfig } from './configuration';
       inject: [databaseConfig.KEY],
       useFactory: (db: ConfigType<typeof databaseConfig>) => db,
     }),
+    UsersModule,
   ],
   controllers: [AppController],
 })

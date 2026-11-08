@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Check,
   Column,
@@ -40,6 +41,7 @@ export class User {
     nullable: true,
     select: false,
   })
+  @Exclude()
   passwordHash: string | null;
 
   @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
