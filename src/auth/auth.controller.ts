@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { AuthGuard } from './auth.guard';
 import { CurrentUser } from './current-user.decorator';
-
-
+import { Roles } from './role.decorator';
+import { RolesInterceptor } from './roles.interceptor';
 
 @Controller('auth')
 export class AuthController {
@@ -21,6 +21,8 @@ export class AuthController {
   }
 
   @UseGuards(AuthGuard)
+  @UseInterceptors(RolesInterceptor)
+  @Roles('admin', 'user')
   @Get('me')
   me(@CurrentUser() user: { sub: number; email: string }) {
     return user;
