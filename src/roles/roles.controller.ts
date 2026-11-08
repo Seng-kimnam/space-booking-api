@@ -1,34 +1,78 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { RolesService } from './roles.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import {
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CreateRoleDto } from './dto/create-role.dto';
+import { RoleResponseDto } from './dto/role-response.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
+import { RolesService } from './roles.service';
 
+@ApiTags('roles')
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Post()
-  create(@Body() createRoleDto: CreateRoleDto) {
-    return this.rolesService.create(createRoleDto);
+  @ApiOperation({ summary: 'Create a role' })
+  @ApiCreatedResponse({ type: RoleResponseDto })
+  @ApiConflictResponse({ description: 'Role name already exists' })
+  async create(@Body() dto: CreateRoleDto): Promise<RoleResponseDto> {
+    return RoleResponseDto.from(await this.rolesService.create(dto));
   }
 
   @Get()
-  findAll() {
-    return this.rolesService.findAll();
+  @ApiOperation({ summary: 'List all roles' })
+  @ApiOkResponse({ type: [RoleResponseDto] })
+  async findAll(): Promise<RoleResponseDto[]> {
+    const roles = await this.rolesService.findAll();
+    return roles.map((role) => RoleResponseDto.from(role));
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.rolesService.findOne(+id);
+  @ApiOperation({ summary: 'Get one role' })
+  @ApiOkResponse({ type: RoleResponseDto })
+  @ApiNotFoundResponse({ description: 'Role not found' })
+  async findOne(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<RoleResponseDto> {
+    return RoleResponseDto.from(await this.rolesService.findOne(id));
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateRoleDto: UpdateRoleDto) {
-    return this.rolesService.update(+id, updateRoleDto);
+  @ApiOperation({ summary: 'Rename a role' })
+  @ApiOkResponse({ type: RoleResponseDto })
+  @ApiNotFoundResponse({ description: 'Role not found' })
+  @ApiConflictResponse({ description: 'Role name already exists' })
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateRoleDto,
+  ): Promise<RoleResponseDto> {
+    return RoleResponseDto.from(await this.rolesService.update(id, dto));
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.rolesService.remove(+id);
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Delete a role' })
+  @ApiNoContentResponse({ description: 'Role deleted' })
+  @ApiNotFoundResponse({ description: 'Role not found' })
+  @ApiConflictResponse({ description: 'ADMIN and USER cannot be deleted' })
+  async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.rolesService.remove(id);
   }
 }
