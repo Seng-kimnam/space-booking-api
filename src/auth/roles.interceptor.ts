@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
+import { UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class RolesInterceptor implements NestInterceptor {
@@ -30,14 +31,13 @@ export class RolesInterceptor implements NestInterceptor {
     const user = request.user;
 
     // 3. Validate user presence and evaluate authorization roles
-    if (!user || !user.roles) {
+    if (!user || !user.role) {
       throw new ForbiddenException(
         'Access denied: User context missing or unauthorized.',
       );
     }
 
-    const hasRole = () =>
-      user.roles.some((role: string) => requiredRoles.includes(role));
+    const hasRole = () => requiredRoles.includes(user.role as UserRole);
     if (!hasRole()) {
       throw new ForbiddenException('Access denied: Insufficient privileges.');
     }

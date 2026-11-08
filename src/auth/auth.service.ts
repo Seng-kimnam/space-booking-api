@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class AuthService {
@@ -17,34 +17,46 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async register(email: string, password: string) {
+  async registerUser(email: string, password: string, name: string) {
     const existing = await this.usersRepository.findOneBy({ email });
     if (existing) {
       throw new ConflictException('Email is already registered');
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const newRegister = this.usersRepository.create({ email, passwordHash });
+    const newRegister = this.usersRepository.create({
+      email,
+      passwordHash,
+      name,
+    });
 
     const user = await this.usersRepository.save(newRegister);
     return user;
   }
 
-  async login(email: string, password: string) {
-    // passwordHash is select: false on the entity, so ask for it explicitly.
-    const user = await this.usersRepository.findOne({
-      where: { email },
-      select: { id: true, email: true, passwordHash: true },
+  async createAdminUser(email: string, password: string, name: string) {
+    const existing = await this.usersRepository.findOneBy({ email });
+    if (existing) {
+      throw new ConflictException('Email is already registered');
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newAdmin = this.usersRepository.create({
+      email,
+      passwordHash,
+      name,
+      role: UserRole.ADMIN,
     });
-    // passwordHash is NULL for social-only accounts: they can't log in with a password.
-    if (
-      !user?.passwordHash ||
-      !(await bcrypt.compare(password, user.passwordHash))
-    ) {
+    const user = await this.usersRepository.save(newAdmin);
+    return user;
+  }
+  async login(email: string, password: string) {
+    const user = await this.usersRepository.findOneBy({ email });
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid email or password');
     }
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       email: user.email,
+      role: user.role,
     });
     return { accessToken };
   }
