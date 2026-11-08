@@ -2,6 +2,9 @@ import { registerAs } from '@nestjs/config';
 
 // Locally this points at Mailpit (SMTP on 1025, UI on 8025).
 export const mailConfig = registerAs('mail', () => ({
-  host: process.env.MAIL_HOST ?? 'localhost',
+  // Use IPv4 on the host; Windows can resolve localhost to an unreachable
+  // IPv6 loopback address while Mailpit is listening on IPv4.
+  host: process.env.MAIL_HOST ?? '127.0.0.1',
   port: Number(process.env.MAIL_PORT ?? 1025),
+  from: process.env.MAIL_FROM ?? 'no-reply@space-booking.local',
 }));

@@ -4,8 +4,14 @@ export class InitialSchema1794132968299 implements MigrationInterface {
     name = 'InitialSchema1794132968299'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TYPE "public"."user_role" AS ENUM('ADMIN', 'USER')`);
-        await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "role" "public"."user_role" NOT NULL DEFAULT 'USER', "name" character varying(100) NOT NULL, "email" citext NOT NULL, "password_hash" character varying(255), "avatar_url" character varying(500), "email_verified_at" TIMESTAMP WITH TIME ZONE, "is_active" boolean NOT NULL DEFAULT true, "no_show_count" integer NOT NULL DEFAULT '0', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "users_email_uk" UNIQUE ("email"), CONSTRAINT "users_no_show_count_chk" CHECK (no_show_count >= 0), CONSTRAINT "users_pkey" PRIMARY KEY ("id"))`);
+        const usersAlreadyExist = await queryRunner.hasTable('users');
+        if (!usersAlreadyExist) {
+            await queryRunner.query(`CREATE TYPE "public"."user_role" AS ENUM('ADMIN', 'USER')`);
+            await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "role" "public"."user_role" NOT NULL DEFAULT 'USER', "name" character varying(100) NOT NULL, "email" citext NOT NULL, "password_hash" character varying(255), "avatar_url" character varying(500), "email_verified_at" TIMESTAMP WITH TIME ZONE, "is_active" boolean NOT NULL DEFAULT true, "no_show_count" integer NOT NULL DEFAULT '0', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "users_email_uk" UNIQUE ("email"), CONSTRAINT "users_no_show_count_chk" CHECK (no_show_count >= 0), CONSTRAINT "users_pkey" PRIMARY KEY ("id"))`);
+        } else {
+            await queryRunner.query(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email_verified_at" TIMESTAMP WITH TIME ZONE`);
+            await queryRunner.query(`ALTER TABLE "users" ALTER COLUMN "password_hash" DROP NOT NULL`);
+        }
         await queryRunner.query(`CREATE TABLE "refresh_tokens" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "token_hash" character varying(255) NOT NULL, "expires_at" TIMESTAMP WITH TIME ZONE NOT NULL, "revoked_at" TIMESTAMP WITH TIME ZONE, "replaced_by_id" uuid, "user_agent" character varying(255), "ip" inet, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "refresh_tokens_token_hash_uk" UNIQUE ("token_hash"), CONSTRAINT "refresh_tokens_pkey" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "refresh_tokens_user_idx" ON "refresh_tokens"  ("user_id") `);
         await queryRunner.query(`CREATE TYPE "public"."auth_provider" AS ENUM('GOOGLE', 'FACEBOOK')`);
@@ -149,8 +155,8 @@ export class InitialSchema1794132968299 implements MigrationInterface {
         await queryRunner.query(`DROP TYPE "public"."auth_provider"`);
         await queryRunner.query(`DROP INDEX "public"."refresh_tokens_user_idx"`);
         await queryRunner.query(`DROP TABLE "refresh_tokens"`);
-        await queryRunner.query(`DROP TABLE "users"`);
-        await queryRunner.query(`DROP TYPE "public"."user_role"`);
+        // The users table predates this migration in existing databases.
+        // Keep it intact when reverting the schema added here.
     }
 
 }

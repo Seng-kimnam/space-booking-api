@@ -20,11 +20,13 @@ export class User {
 
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
-  
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
+  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
   @Exclude()
-  passwordHash: string;
+  passwordHash: string | null;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
 
   @Column({
     name: 'reset_token_hash',
