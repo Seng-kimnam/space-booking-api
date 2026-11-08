@@ -35,7 +35,14 @@ export class AppLogger extends ConsoleLogger {
     errorStack?: unknown,
     params?: Record<string, unknown>,
   ): void {
-    super.printMessages(messages, context, logLevel, writeStreamType, errorStack, params);
+    super.printMessages(
+      messages,
+      context,
+      logLevel,
+      writeStreamType,
+      errorStack,
+      params,
+    );
 
     if (!this.fileStream) {
       return;

@@ -348,7 +348,7 @@ Partial UNIQUE `(user_id, purpose) WHERE used_at IS NULL`: at most one live code
 | description | text | NULL |
 | address | varchar(255) | NOT NULL |
 | lat, lng | double precision | NULL, `CHECK (lat BETWEEN -90 AND 90)`, `CHECK (lng BETWEEN -180 AND 180)` |
-| timezone | varchar(64) | NOT NULL, IANA name (validated in app) |
+| timezone | varchar(64) | NOT NULL, default `'Asia/Phnom_Penh'` (Cambodia, UTC+7), IANA name (validated in app) |
 | is_active | boolean | NOT NULL, default true |
 | created_at, updated_at, deleted_at | | |
 
