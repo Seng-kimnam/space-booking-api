@@ -1,0 +1,114 @@
+# Local services: PostgreSQL, pgAdmin, Redis, Mailpit, Loki, Alloy, Grafana.
+# The API runs on your machine with `npm run start:dev`.
+#
+# From the repo root:
+#   docker compose --env-file .env -f infrastructure/docker/development/docker-compose.yml up -d
+#
+# Values come from .env; the fallbacks below are local-dev defaults only.
+
+name: space-booking
+
+services:
+  db:
+    image: postgres:17-alpine
+    env_file:
+      - ../../../.env
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-space_booking}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-space_booking_dev}
+      POSTGRES_DB: ${DB_NAME:-space_booking_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      db:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "${MAIL_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+
+  # --- Monitoring: Loki (log storage) + Alloy (collector) + Grafana (UI) ---
+  # Config files: infrastructure/monitoring/
+  loki:
+    image: grafana/loki:3.6.20
+    command: ["-config.file=/etc/loki/config.yml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ../../monitoring/loki/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "${ALLOY_PORT:-12345}:12345"
+    volumes:
+      - ../../monitoring/alloy/config.development.alloy:/etc/alloy/config.alloy:ro
+      # The API on the host writes here (LOG_FILE=logs/app.log)
+      - ../../../logs:/var/log/space-booking:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ../../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - loki
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      retries: 10
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  redis_data:
+  loki_data:
+  alloy_data:
+  grafana_data:

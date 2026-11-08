@@ -4,14 +4,15 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, Copilot, etc.) workin
 
 ## 1. Project overview
 
-**Online Space Booking System, backend API only.** Students and workers browse places (libraries, cafes, coworking), see live seat availability, reserve a seat before arriving, and get notified about their booking. This repo contains only the REST API. There is no frontend here.
+**Online Space Booking System, backend API only.** Students and workers browse places (libraries, cafes, coworking), see live seat availability, reserve a seat before arriving, check in with a one-time QR code, and get Telegram alerts about their booking. This repo contains only the REST API. There is no frontend here.
 
-**Roles**
-- `ADMIN`: sees and manages all places.
-- `MANAGER`: manages only their own place (`users.place_id`).
-- `USER`: browses, books, cancels, receives notifications.
+**Independent backend.** This app does not depend on any other system (e.g. a Library Management System). Other apps integrate with it **synchronously** over the REST API (as `api_clients`) and **asynchronously** over RabbitMQ (events published via the transactional outbox, consumed messages deduplicated via the inbox). See `docs/decisions/0001-independent-backend-integration.md`.
 
-**Core features**: list places, list seats per place with availability, seats nearly timed out, booking notifications, reserve, cancel, no double-booking, auth (register, login, forgot/reset password), check-in, walk-in marking by place admins.
+**Roles** (only these two)
+- `ADMIN`: manages places, areas, seats, policies, bookings, API clients; monitors occupancy; manual check-in/out.
+- `USER`: browses, books, modifies, extends, cancels, checks in/out by QR, links Telegram.
+
+**Core features**: auth (register, email OTP verification, login, refresh, logout, forgot/reset password by email OTP); browse places, areas, seats and availability; reserve, modify, extend, cancel with no double-booking; one-time QR check-in/check-out; auto-expire after the grace period; overdue checkout detection; Telegram linking and booking alerts; admin monitoring. Full list: `docs/api-endpoints.md`.
 
 **Team**: 4 to 5 developers working in parallel. Keep changes small and scoped so we don't collide.
 
@@ -21,11 +22,13 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, Copilot, etc.) workin
 |---|---|
 | Runtime / language | Node.js, TypeScript (`strict`) |
 | Framework | NestJS |
-| Database | PostgreSQL (extension `btree_gist` required) |
+| Database | PostgreSQL (extensions `btree_gist`, `citext`, `pgcrypto` required) |
 | ORM / migrations | TypeORM, **migrations only** (`synchronize: false` always) |
-| Auth | JWT access token (+ refresh if added), password hashing with argon2 or bcrypt |
+| Auth | JWT access token + rotating refresh token, password hashing with argon2 or bcrypt; social sign-in with Google and Facebook (OAuth redirect + callback with PKCE for web, provider-token flow for mobile); API keys for `api_clients` |
 | Validation | `class-validator` + `class-transformer` DTOs |
 | Scheduling | `@nestjs/schedule` (or BullMQ) for background jobs |
+| Messaging | RabbitMQ (topic exchange `space-booking.events`), transactional outbox/inbox |
+| Notifications | Email (auth OTP only, Mailpit locally), Telegram Bot API (booking alerts) |
 | API docs | `@nestjs/swagger` (OpenAPI) |
 | Tests | Jest, Supertest |
 | Infra | Docker, Docker Compose, CI via GitHub Actions |
@@ -34,29 +37,37 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, Copilot, etc.) workin
 
 ## 3. Repository layout
 
+Full module map (table ownership, endpoints, exports, dependency graph, in-module layout): **`docs/project-structure.md`**.
+
 ```
 /src
-  /auth            # register, login, forgot/reset password,resend otp guards, strategies
-  /users
-  /roles
-  /places
+  main.ts, app.module.ts
+  /configuration   # registerAs configs + env validation
+  /logger
+  /database        # data-source.ts, /migrations, /seeds, /transformers
+  /common          # enums, decorators, guards, filters, interceptors, shared DTOs, utils
+  /redis           # global ioredis provider
+  /health
+  /users           # users, user_otps
+  /auth            # register, OTP, login, refresh, Google/Facebook OAuth, identities
+  /places          # places, opening hours, closures, booking policies
+  /areas
   /seats
-  /bookings        # reserve, cancel, check-in, walk-in, availability queries
-  /notifications
-  /jobs            # scheduled tasks: no-show release, reminders, auto-complete
-  /common          # filters, interceptors, decorators, shared DTOs, enums
-  /database
-    data-source.ts
-    /migrations
-    /seeds
-/test              # e2e / integration tests
-/docs              # ERD, decisions
-docker-compose.yml
+  /bookings        # bookings, history, QR check-in/out, availability
+  /telegram        # account linking, bot client, webhook
+  /notifications   # email + Telegram channels, dispatcher
+  /api-clients     # API keys for integrating apps
+  /messaging       # RabbitMQ, outbox, inbox, consumers
+  /admin           # dashboard, occupancy, monitoring
+  /jobs            # expire, overdue, notification dispatch, outbox relay
+/test              # e2e/<module>/*.e2e-spec.ts, utils/
+/docs              # erd.md, api-endpoints.md, project-structure.md, decisions/
+/infrastructure    # docker compose (development, production), monitoring
 .env.example
 AGENTS.md
 ```
 
-Adjust to the real structure and keep this section accurate. One NestJS module per domain folder.
+One NestJS module per domain folder. Keep this section and `docs/project-structure.md` accurate.
 
 ## 4. Commands
 
@@ -84,30 +95,29 @@ npm run lint && npm run build && npm test && npm run test:e2e
 
 If a command above doesn't exist yet, say so and propose adding it. Don't silently substitute.
 
-## 5. Data model (the six tables)
+## 5. Data model (18 tables)
 
-This is the full schema. Do not add tables without team agreement and an ERD update.
+`docs/erd.md` is the full schema (columns, constraints, indexes). Do not add tables without team agreement and an ERD update.
 
 ```
-roles(id PK, name UK)                       -- SUPER_ADMIN | PLACE_ADMIN | USER
-users(id PK, role_id FK, place_id FK NULL, name, email UK, password_hash,
-      reset_token_hash, reset_token_expires_at, no_show_count, created_at)
-places(id PK, name, type, address, lat, lng, open_time, close_time, timezone,
-       checkin_grace_minutes, is_active)
-seats(id PK, place_id FK, zone, label, features jsonb, status)   -- ACTIVE | MAINTENANCE
-bookings(id PK, seat_id FK, user_id FK NULL, source, time_range tstzrange, status,
-         checked_in_at, cancelled_at, created_at)
-notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, read_at)
+users, auth_identities, user_otps, refresh_tokens                  -- auth
+places, place_opening_hours, place_closures, booking_policies,     -- places & seats
+  areas, seats
+bookings, booking_events, booking_qr_tokens                         -- bookings
+telegram_accounts, notifications                                    -- notifications
+api_clients, outbox_events, inbox_events                            -- integration
 ```
 
-- `users.place_id` is set only for `PLACE_ADMIN`; it is `NULL` for `SUPER_ADMIN` and `USER`.
-- `bookings.user_id` is `NULL` for walk-ins (`source = WALK_IN`).
-- Booking `status`: `RESERVED | CHECKED_IN | COMPLETED | CANCELLED | NO_SHOW`.
-- Booking `source`: `ONLINE | WALK_IN`.
-- Notification `type`: `CONFIRMED | REMINDER | ENDING_SOON | CANCELLED | NO_SHOW`.
-- Password reset lives on `users` (`reset_token_hash`, `reset_token_expires_at`). Clear both after use.
-- Seat zones are a plain `seats.zone` string, not a table.
-- Use UUID primary keys for all tables except `roles` (small integer id is fine).
+- `users.role`: `ADMIN | USER` (enum on `users`, no roles table).
+- `users.password_hash` is NULL for users who only sign in with Google/Facebook. Social accounts live in `auth_identities`, matched on `(provider, provider_user_id)`, never on email. Provider tokens are not stored.
+- Booking `status`: `PENDING | CHECKED_IN | CHECKOUT_OVERDUE | COMPLETED | CANCELLED | EXPIRED`.
+- Booking `source`: `APP | API_CLIENT | ADMIN`. `bookings.user_id` is always set (no walk-ins).
+- Grace period, reminder offsets and booking limits come from `booking_policies` (one row per place). Never hardcode "15 minutes".
+- OTPs (email verify, password reset, Telegram link) live in `user_otps`; QR codes in `booking_qr_tokens`. Both store hashes only and are single use.
+- Notification `channel`: `EMAIL` (auth OTP only) or `TELEGRAM` (booking alerts).
+- Seats belong to a place and optionally an area (`areas` table).
+- Places, areas and seats are soft-deleted (`deleted_at`).
+- UUID primary keys for all tables.
 
 ## 6. Critical domain rules (never violate)
 
@@ -118,19 +128,21 @@ notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, rea
 
    ALTER TABLE bookings ADD CONSTRAINT no_double_booking
      EXCLUDE USING gist (seat_id WITH =, time_range WITH &&)
-     WHERE (status IN ('RESERVED', 'CHECKED_IN'));
+     WHERE (status IN ('PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE'));
    ```
-   Never replace it with "check availability, then insert". Catch Postgres error code `23P01` (exclusion violation) in the booking service and return `409 Conflict`.
-2. **Seat availability is derived, never stored.** No `is_available` column. A seat is available for a range if no `RESERVED`/`CHECKED_IN` booking overlaps it and the seat is `ACTIVE`.
-3. **Walk-ins are bookings** with `source = WALK_IN` and `user_id = NULL`, so the same constraint protects the seat. Only a `PLACE_ADMIN` (for their place) or `SUPER_ADMIN` may create them.
-4. **No-shows are released automatically.** A `RESERVED` booking not checked in within `places.checkin_grace_minutes` of its start becomes `NO_SHOW`, increments `users.no_show_count`, and frees the seat. This is a scheduled job, never done lazily on read.
+   Never replace it with "check availability, then insert". It also guards modify and extend (UPDATEs of `time_range`). Catch Postgres error code `23P01` (exclusion violation) in the booking service and return `409 Conflict`.
+2. **Seat availability is derived, never stored.** No `is_available` column. A seat is available for a range if it is `ACTIVE`, not deleted, the place is open for the whole range, and no `PENDING`/`CHECKED_IN`/`CHECKOUT_OVERDUE` booking overlaps it. A seat with a `CHECKOUT_OVERDUE` booking counts as occupied *now* until an admin resolves it.
+3. **One-time QR.** Check-in/out QR tokens are single use, hash-only, revoked when reissued, and marked used in the same transaction as the status change. Admins can check in/out manually.
+4. **Expiry is automatic.** A `PENDING` booking not checked in within `booking_policies.checkin_grace_minutes` of its start becomes `EXPIRED`, increments `users.no_show_count`, and frees the seat. A `CHECKED_IN` booking past its end becomes `CHECKOUT_OVERDUE`. Both are scheduled jobs, never done lazily on read.
 5. **"Nearly timed out" is computed** from `upper(time_range) - now()` for `CHECKED_IN` bookings. Do not add a column for it.
-6. **Time is `timestamptz`, stored in UTC.** Convert to `places.timezone` only when formatting output. Reject bookings outside `open_time`/`close_time` (evaluated in the place's timezone) and bookings in the past.
-7. **Authorization is enforced server-side.** A `PLACE_ADMIN` may only read or modify data where `place.id === user.place_id`. Never trust a role or place id from the request body; use the authenticated user. Users may only view or cancel their own bookings.
-8. **Reset tokens**: store only a hash, with expiry, single use. Never log or return a stored token. Respond identically whether or not the email exists (no account enumeration).
-9. **Passwords** are hashed (argon2/bcrypt). Never log, return, or commit passwords, hashes, tokens, or secrets. Exclude `password_hash` and reset fields from every response.
-10. **Cancelling** sets `status = CANCELLED` and `cancelled_at`; it never deletes the row. Cancelled slots become bookable again automatically through the constraint's `WHERE` clause.
-11. **Booking creation runs in a transaction** that inserts the booking and its notification rows together.
+6. **Time is `timestamptz`, stored in UTC.** Convert to `places.timezone` only when formatting output. Reject bookings outside `place_opening_hours` or on `place_closures` (evaluated in the place's timezone) and bookings in the past.
+7. **Authorization is enforced server-side.** Never trust a role, user id or client id from the request body; use the authenticated user or API client. Users may only view, modify or cancel their own bookings. API clients are limited to their `scopes`.
+8. **OTPs and tokens** (email OTP, refresh, QR, Telegram link, API keys): store only a hash, with expiry, single use where applicable. Never log or return a stored token. Respond identically whether or not the email exists (no account enumeration).
+9. **Passwords** are hashed (argon2/bcrypt). Never log, return, or commit passwords, hashes, tokens, or secrets. Exclude `password_hash` and token fields from every response and every event payload.
+10. **Cancelling** sets `status = CANCELLED`, `cancelled_at` and `cancelled_by`; it never deletes the row. Cancelled slots become bookable again automatically through the constraint's `WHERE` clause.
+11. **Booking changes run in one transaction** with their `booking_events` row, their `notifications` rows and their `outbox_events` row. Never publish to RabbitMQ directly from a request handler; the outbox relay does it.
+12. **Consumers are idempotent.** Every consumed message (RabbitMQ, Telegram webhook) is recorded in `inbox_events` keyed by `(source, message_id)` before it is processed.
+13. **Social sign-in never trusts an unverified email.** Verify every provider token server-side (Google: signature, `aud`, `iss`, `exp`; Facebook: `debug_token` with our app id). The callback validates a single-use `state` and only redirects to an allowlisted `redirect_uri`; it returns a one-time login code, never tokens, in the URL. Auto-link to an existing account only when the provider reports the email as verified; otherwise require the user to sign in and link explicitly. A user must always keep at least one sign-in method. Social sign-up only ever creates `USER`.
 
 ## 7. TypeORM and migration rules
 
@@ -139,12 +151,12 @@ notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, rea
 - Every migration must have a working `down()`. Test `run` then `revert` then `run` locally.
 - Generate migrations from entity changes, then **read the generated SQL** before committing. Remove unrelated drift.
 - Things TypeORM can't model (exclusion constraint, `tstzrange` quirks, `CHECK` constraints) go in hand-written SQL inside a migration (`queryRunner.query(...)`).
-- Suggested `CHECK`: `users.place_id IS NOT NULL` when the role is `PLACE_ADMIN`; enforce in the service layer too.
+- The `CHECK` constraints tying booking status to its timestamps are listed in `docs/erd.md` section 5; enforce the same rules in the service layer too.
 - Entities live next to their module (`*.entity.ts`). Use explicit `@Column({ name: '...' })` so DB columns stay `snake_case` while properties stay `camelCase`.
 - `time_range` is a Postgres `tstzrange`. Map it with a custom column type or transformer, or write the insert and overlap queries with raw SQL or the query builder. Keep that logic in one place (the bookings repository).
 - Use repositories or the query builder. Avoid raw SQL scattered in services, except in the cases above.
-- Add indexes for common reads: `bookings(seat_id)`, `bookings(user_id)`, a GiST index on `time_range` (the exclusion constraint creates one), `seats(place_id)`, `notifications(user_id, read_at)`.
-- Seed data (roles, one demo place, a few seats, a super admin) goes in `/src/database/seeds` and is idempotent.
+- Add the indexes listed in `docs/erd.md` section 6.
+- Seed data (one admin, one demo place with opening hours and policy, an area, a few seats) goes in `/src/database/seeds` and is idempotent.
 
 ## 8. API conventions
 
@@ -154,12 +166,10 @@ notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, rea
 - Return response DTOs, not raw entities, so internal fields never leak.
 - Consistent error shape: `{ statusCode, message, error }` via a global exception filter.
 - Paginate list endpoints (`page`, `limit`, with a max). No unbounded lists.
-- Suggested endpoints (confirm before adding):
-  - Auth: `POST /auth/register`, `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`
-  - Places: `GET /places`, `GET /places/:id`, plus admin create/update
-  - Seats: `GET /places/:id/seats?from=&to=` (availability for a range), admin manage seats
-  - Bookings: `POST /bookings`, `GET /bookings/me`, `PATCH /bookings/:id/cancel`, `PATCH /bookings/:id/check-in`, `POST /places/:id/walk-ins`, `PATCH /bookings/:id/release`
-  - Notifications: `GET /notifications`, `PATCH /notifications/:id/read`
+- Endpoint list: `docs/api-endpoints.md`. Admin routes live under `/admin/*`. Add new endpoints there first.
+- `POST /bookings` accepts an `Idempotency-Key` header (stored in `bookings.idempotency_key`).
+- The Telegram webhook verifies the secret header; API clients authenticate with an API key header, not JWT.
+- Async events (RabbitMQ routing keys) are listed in `docs/api-endpoints.md` section 9. Changing a payload is a breaking API change: version it.
 
 ## 9. Coding conventions
 
@@ -176,9 +186,12 @@ notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, rea
 - Unit tests for every new service method; integration (e2e) tests for every endpoint.
 - Integration tests run against a real PostgreSQL (Docker), not mocks, because the exclusion constraint is the thing under test.
 - **Concurrency test is mandatory** for booking creation: fire many simultaneous requests for the same seat and overlapping time, and assert exactly one succeeds and the rest return `409`.
-- Test: cancelled slot becomes bookable again; walk-in blocks online booking; no-show job releases the seat after the grace period; check-in outside the allowed window is rejected.
-- Test authorization: `USER` cannot see others' bookings; `PLACE_ADMIN` gets `403` on another place's data.
-- Test forgot-password: expired token rejected, used token rejected, same response for unknown email.
+- Concurrency also applies to modify and extend: two overlapping changes on the same seat, exactly one succeeds.
+- Test: cancelled slot becomes bookable again; expire job releases the seat after the grace period; overdue job marks `CHECKOUT_OVERDUE` and the seat stays occupied until resolved; check-in outside the allowed window is rejected; a QR token cannot be used twice or after reissue.
+- Test authorization: `USER` cannot see or change others' bookings; `USER` gets `403` on `/admin/*`; an API client gets `403` outside its scopes.
+- Test OTP flows (verify email, forgot password): expired code rejected, used code rejected, too many attempts rejected, same response for unknown email.
+- Test social sign-in (provider verification mocked at the HTTP boundary, DB real): new user created with `password_hash = NULL`; returning user matched by `provider_user_id`; verified email links to an existing account; unverified email matching an existing account returns `409`; invalid/expired/wrong-audience token returns `401`; unlinking the last sign-in method returns `409`; callback with missing/expired/reused `state` fails; non-allowlisted `redirect_uri` is rejected; a login code works only once.
+- Test idempotency: a repeated `POST /bookings` with the same `Idempotency-Key` returns the same booking; a duplicate inbox message is processed once; every booking change writes an outbox row in the same transaction.
 - Never skip, delete, or weaken a failing test to make it pass. Fix the cause or ask.
 
 ## 11. Git and PR workflow
@@ -188,6 +201,7 @@ notifications(id PK, user_id FK, booking_id FK, type, scheduled_at, sent_at, rea
 - Small, focused PRs. Describe what changed, why, and how it was tested.
 - Never push to `main` directly or force-push shared branches.
 - **One person owns schema changes at a time.** Coordinate before creating a migration so timestamps and ordering don't collide. Mention any migration in the PR title.
+- Respect the module dependency graph in `docs/project-structure.md` §3: no circular imports, cross-module calls only through exported services. Changing the graph needs team agreement.
 - Don't touch files outside your task's scope (migrations, CI config, `common/`) without saying so in the PR.
 
 ## 12. How agents should work here

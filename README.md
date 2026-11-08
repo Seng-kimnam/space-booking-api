@@ -1,114 +1,122 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Space Booking API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend for the **Online Space Booking System**: browse places (libraries, cafes, coworking), see live seat availability, reserve a seat before arriving, and get booking notifications.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with NestJS 12, TypeORM, PostgreSQL 17, Redis and Mailpit (local email).
 
-## Description
+## Requirements
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+| Tool | Version | Why |
+|---|---|---|
+| **Node.js** | **24.9 or newer** (Node 24 LTS) | See below. Pinned in `.nvmrc` and `package.json` → `engines` |
+| npm | 11+ (ships with Node 24) | The project uses `package-lock.json`; don't use yarn/pnpm |
+| Docker + Docker Compose v2 | recent | Runs PostgreSQL, pgAdmin, Redis and Mailpit locally |
 
-## Project setup
+### Why Node 24.9+?
 
-```bash
-$ npm install
+NestJS 12 packages are published as **ES modules only**. The app itself runs on any Node ≥ 20, but **Jest can only load ES modules from Node 24.9 onward** (with the `--experimental-vm-modules` flag, which the `npm test` scripts already pass). On Node 20 or 22 every test fails with:
+
+```text
+Must use import to load ES Module: .../node_modules/@nestjs/testing/index.js
 ```
 
-## Compile and run the project
+Using one Node version for running, testing and Docker (`node:24-bookworm-slim`) keeps everything consistent.
+
+### Install the right Node version
+
+With [nvm](https://github.com/nvm-sh/nvm):
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+nvm install        # reads .nvmrc → installs Node 24
+nvm use            # run this in every new terminal, or:
+nvm alias default 24
+node -v            # should print v24.9.0 or newer
 ```
 
-## Run tests
+> **WSL / Windows users:** run `npm install` **from WSL only**, never from Windows (PowerShell, IDE terminal on Windows).
+> npm installs platform-specific native binaries (e.g. for `oxlint`, `argon2`, `bcrypt`). Installing from Windows puts
+> Windows binaries in `node_modules`, and lint/tests then fail in WSL with errors like `Cannot find native binding`.
+> If that happens, run `npm install` again from WSL.
+
+## Getting started
 
 ```bash
-# unit tests
-$ npm run test
+# 1. Install dependencies
+npm install
 
-# e2e tests
-$ npm run test:e2e
+# 2. Create your local env file and fill in values
+cp .env.example .env
 
-# test coverage
-$ npm run test:cov
+# 3. Start PostgreSQL, pgAdmin, Redis and Mailpit
+docker compose --env-file .env -f infrastructure/docker/development/docker-compose.yml up -d
+
+# 4. Apply database migrations
+npm run migration:run
+
+# 5. Start the API in watch mode
+npm run start:dev
 ```
 
-## Deployment
+| URL | What |
+|---|---|
+| http://localhost:3000/api/v1/health | Health check |
+| http://localhost:3000/api/docs | Swagger UI (disabled when `NODE_ENV=production`) |
+| http://localhost:5050 | pgAdmin (server host: `db`, port `5432`) |
+| http://localhost:8025 | Mailpit inbox |
+| http://localhost:3001 | Grafana: logs via Loki (Explore → `{service_name="space-booking-api"}`) |
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Logs (Grafana + Loki + Alloy)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+The API uses NestJS's built-in `Logger`. In development, set `LOG_FILE=logs/app.log` in `.env` (and run `mkdir -p logs` once):
+the console stays readable, and a JSON copy goes to `logs/app.log`, which Grafana Alloy ships to Loki.
+In production the API logs JSON to stdout (`LOG_FORMAT=json`) and Alloy reads the container logs.
+Setup and queries: [`infrastructure/README.md#logging--monitoring`](infrastructure/README.md#logging--monitoring).
+
+Full infrastructure details (start/stop, volumes, ports, production stack): [`infrastructure/README.md`](infrastructure/README.md).
+
+## Scripts
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# run
+npm run start:dev        # watch mode
+npm run start:debug      # watch mode + debugger
+npm run build            # compile to dist/
+npm run start:prod       # run the compiled app
+
+# quality
+npm run lint
+npm test                 # unit tests
+npm run test:e2e         # integration tests (needs the database running)
+npm run test:cov         # unit tests with coverage
+
+# database (TypeORM, config in src/database/data-source.ts)
+npm run migration:generate -- src/database/migrations/CreateUsers
+npm run migration:create -- src/database/migrations/AddSomething
+npm run migration:run
+npm run migration:show
+npm run migration:revert # local dev database only
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Project structure
 
-## Observability
+```text
+src/
+├── configuration/     # registerAs configs (app, database, redis, mail, logger, swagger), loaded globally
+├── logger/            # AppLogger: built-in ConsoleLogger + optional JSON file output
+├── database/
+│   ├── migrations/    # TypeORM migrations (generated, never edited after merge)
+│   ├── seeds/
+│   └── data-source.ts # shared by the app and the TypeORM CLI
+├── app.controller.ts  # GET /health
+├── app.module.ts
+└── main.ts            # global prefix /api/v1, Swagger
+infrastructure/
+├── docker/{development,production}/docker-compose.yml
+└── monitoring/        # Loki, Alloy and Grafana config
+```
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Team conventions and domain rules (no double-booking, UTC timestamps, etc.) are in [`AGENTS.md`](AGENTS.md).
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+## Known dependency advisories
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+`npm audit` reports a few **low** severity advisories from `deepmerge`, which is used only inside Jest (dev dependency, never shipped). No patched `deepmerge` release exists yet. **Do not run `npm audit fix --force`**: it "fixes" this by downgrading Jest to v25, which breaks the test setup.
