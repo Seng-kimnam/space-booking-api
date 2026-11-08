@@ -184,6 +184,16 @@ describe('seats admin writes (real Postgres)', () => {
       );
     });
 
+    it('400 (not 500) for null label or features', async () => {
+      const made = (await create(P, { label: lbl() })).body;
+      for (const body of [{ label: null }, { features: null }]) {
+        const res = await api('patch', `/admin/seats/${made.id}`, admin).send(
+          body,
+        );
+        expect(res.status).toBe(400);
+      }
+    });
+
     it('409 label taken; 400 placeId in body or foreign area; 404 unknown/deleted seat', async () => {
       const a = (await create(P, { label: lbl() })).body;
       const b = (await create(P, { label: lbl() })).body;
