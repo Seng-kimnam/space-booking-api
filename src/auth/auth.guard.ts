@@ -7,12 +7,17 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 
+type AuthenticatedRequest = Request & {
+  user?: Record<string, unknown>;
+};
+
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request: any = context.switchToHttp().getRequest<Request>();
+    const request =
+      context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = this.extractToken(request);
     if (!token) {
       throw new UnauthorizedException('No token provided');
@@ -27,7 +32,14 @@ export class AuthGuard implements CanActivate {
   }
 
   private extractToken(request: Request): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
+    const authorization = request.headers.authorization?.trim();
+    if (!authorization) {
+      return undefined;
+    }
+
+    const [type, token, ...extraParts] = authorization.split(/\s+/);
+    return type?.toLowerCase() === 'bearer' && token && extraParts.length === 0
+      ? token
+      : undefined;
   }
 }

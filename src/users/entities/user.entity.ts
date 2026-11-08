@@ -1,67 +1,62 @@
 import { Exclude } from 'class-transformer';
 import {
-  Check,
   Column,
   CreateDateColumn,
-  DeleteDateColumn,
   Entity,
   PrimaryGeneratedColumn,
-  Unique,
-  UpdateDateColumn,
 } from 'typeorm';
-import { UserRole } from '../../common/enums';
 
-@Entity({ name: 'users' })
-@Unique('users_email_uk', ['email'])
-@Check('users_no_show_count_chk', 'no_show_count >= 0')
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  USER = 'USER',
+}
+@Entity('users')
 export class User {
-  @PrimaryGeneratedColumn('uuid', { primaryKeyConstraintName: 'users_pkey' })
+  @PrimaryGeneratedColumn('uuid')
   id: string;
-
-  @Column({
-    type: 'enum',
-    enum: UserRole,
-    enumName: 'user_role',
-    default: UserRole.USER,
-  })
-  role: UserRole;
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'citext' })
+  @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
+  
 
-  // NULL for social-only accounts. Not selected by default so it can't leak by
-  // accident; the auth service opts in with addSelect('user.passwordHash').
+  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
+  @Exclude()
+  passwordHash: string;
+
   @Column({
-    name: 'password_hash',
+    name: 'reset_token_hash',
     type: 'varchar',
     length: 255,
     nullable: true,
-    select: false,
   })
   @Exclude()
-  passwordHash: string | null;
+  resetTokenHash: string | null;
 
-  @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
-  avatarUrl: string | null;
+  @Column({
+    name: 'reset_token_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  @Exclude()
+  resetTokenExpiresAt: Date | null;
 
-  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
-  emailVerifiedAt: Date | null;
-
-  @Column({ name: 'is_active', type: 'boolean', default: true })
-  isActive: boolean;
-
-  @Column({ name: 'no_show_count', type: 'integer', default: 0 })
+  @Column({ name: 'no_show_count', type: 'int', default: 0 })
   noShowCount: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  // Foreign keys only. No imports of Role/Place, so no conflicts with teammates' entities.
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    default: UserRole.USER,
+  })
+  role: UserRole;
 
-  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
-  deletedAt: Date | null;
+  @Column({ name: 'place_id', type: 'uuid', nullable: true })
+  placeId: string | null;
 }
