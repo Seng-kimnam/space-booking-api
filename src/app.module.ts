@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { configurations, databaseConfig } from './configuration';
 import { UsersModule } from './users/users.module';
+import { RolesModule } from './roles/roles.module';
 import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 import { BookingsModule } from './bookings/bookings.module';
@@ -23,6 +24,7 @@ import { TelegramModule } from './telegram/telegram.module';
     // Runs the expiry, overdue and notification-dispatch crons (JobsModule).
     ScheduleModule.forRoot(),
     UsersModule,
+    RolesModule,
     AuthModule,
     SeatsModule,
     // INTERIM: places/messaging/OTP/no-show providers until those modules merge.
