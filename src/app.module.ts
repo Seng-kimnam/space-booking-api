@@ -4,6 +4,7 @@ import { ConfigModule, ConfigType } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { configurations, databaseConfig } from './configuration';
 import { UsersModule } from './users/users.module';
+import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -15,6 +16,7 @@ import { AppController } from './app.controller';
     }),
     UsersModule,
     AuthModule,
+    SeatsModule,
   ],
   controllers: [AppController],
 })

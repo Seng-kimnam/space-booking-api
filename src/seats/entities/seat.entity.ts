@@ -56,7 +56,7 @@ export class Seat {
   label: string;
 
   // e.g. { "power": true, "window": false, "desk": "large" }
-  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  @Column({ type: 'jsonb', default: () => "'{}'" })
   features: Record<string, unknown>;
 
   @Column({
