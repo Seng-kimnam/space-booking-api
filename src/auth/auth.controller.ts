@@ -1,10 +1,18 @@
-import { Body, Controller, Get, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { AuthGuard } from './auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import { Roles } from './role.decorator';
 import { RolesInterceptor } from './roles.interceptor';
+import { UserRole } from '../users/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -12,7 +20,7 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto.email, dto.password);
+    return this.authService.registerUser(dto.email, dto.password);
   }
 
   @Post('login')
@@ -26,5 +34,11 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: { sub: number; email: string }) {
     return user;
+  }
+  @UseGuards(AuthGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('admin-only')
+  adminOnly() {
+    return { message: 'Admin access granted' };
   }
 }

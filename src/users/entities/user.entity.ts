@@ -1,6 +1,15 @@
 import { Exclude } from 'class-transformer';
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  USER = 'USER',
+}
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -16,11 +25,20 @@ export class User {
   @Exclude()
   passwordHash: string;
 
-  @Column({ name: 'reset_token_hash', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'reset_token_hash',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   @Exclude()
   resetTokenHash: string | null;
 
-  @Column({ name: 'reset_token_expires_at', type: 'timestamptz', nullable: true })
+  @Column({
+    name: 'reset_token_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
   @Exclude()
   resetTokenExpiresAt: Date | null;
 
@@ -31,8 +49,12 @@ export class User {
   createdAt: Date;
 
   // Foreign keys only. No imports of Role/Place, so no conflicts with teammates' entities.
-  @Column({ name: 'role_id', type: 'smallint' })
-  roleId: number;
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    default: UserRole.USER,
+  })
+  role: UserRole;
 
   @Column({ name: 'place_id', type: 'uuid', nullable: true })
   placeId: string | null;
