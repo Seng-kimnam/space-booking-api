@@ -74,6 +74,7 @@ import { User } from '../../users/entities/user.entity';
   where: 'idempotency_key IS NOT NULL',
 })
 @Index('bookings_client_idx', ['clientId'], { where: 'client_id IS NOT NULL' })
+@Index('bookings_group_idx', ['groupId'], { where: 'group_id IS NOT NULL' })
 // DESC / expression indexes TypeORM can't express; they live in the migration only.
 @Index('bookings_user_created_idx', { synchronize: false })
 @Index('bookings_status_start_idx', { synchronize: false })
@@ -111,6 +112,11 @@ export class Booking {
     onDelete: 'RESTRICT',
   })
   clientId: string | null;
+
+  // Bookings made by one multi-seat request share a group (single seat = group of one).
+  // Lets them share one QR and one Telegram message. Not an FK: there is no groups table.
+  @Column({ name: 'group_id', type: 'uuid', nullable: true })
+  groupId: string | null;
 
   @Column({
     type: 'enum',
