@@ -21,9 +21,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../auth/current-user.decorator';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
 import { Roles } from '../../auth/role.decorator';
-import { UserRole } from '../../common/enums';
+import { UserRole } from '../../users/entities/user.entity';
 import type { AuthUser } from '../../common/types/auth-user';
 import {
   BookingScopeQueryDto,
@@ -50,7 +51,7 @@ const uuid = new ParseUUIDPipe({ version: 'all' });
 
 @ApiTags('Bookings')
 @ApiBearerAuth()
-@Roles(UserRole.USER)
+@Secured(UserRole.USER)
 @Controller('bookings')
 export class BookingsController {
   constructor(
@@ -71,7 +72,7 @@ export class BookingsController {
   @ApiNotFoundResponse({ description: 'A seat does not exist or is not bookable' })
   @ApiConflictResponse({ description: 'A seat is already booked, or the booking limit is reached' })
   create(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Body() dto: CreateBookingDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<BookingGroupResponseDto> {
@@ -82,7 +83,7 @@ export class BookingsController {
   @ApiOperation({ summary: 'My bookings' })
   @ApiOkResponse({ type: PaginatedBookingsResponseDto })
   list(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Query() query: MyBookingsQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
     return this.bookings.listMine(user, query);
@@ -92,7 +93,7 @@ export class BookingsController {
   @ApiOperation({ summary: 'My upcoming and ongoing bookings' })
   @ApiOkResponse({ type: PaginatedBookingsResponseDto })
   upcoming(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Query() query: PaginationQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
     return this.bookings.listMine(user, { ...query, view: 'upcoming' });
@@ -102,7 +103,7 @@ export class BookingsController {
   @ApiOperation({ summary: 'My finished bookings (completed, cancelled, expired)' })
   @ApiOkResponse({ type: PaginatedBookingsResponseDto })
   history(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Query() query: PaginationQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
     return this.bookings.listMine(user, { ...query, view: 'history' });
@@ -113,7 +114,7 @@ export class BookingsController {
   @ApiOkResponse({ type: BookingResponseDto })
   @ApiNotFoundResponse()
   get(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
   ): Promise<BookingResponseDto> {
     return this.bookings.getMine(user, bookingId);
@@ -124,7 +125,7 @@ export class BookingsController {
   @ApiOkResponse({ type: BookingGroupResponseDto })
   @ApiConflictResponse({ description: 'Seat taken at the new time, or too late to modify' })
   modify(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
     @Query() { scope }: BookingScopeQueryDto,
     @Body() dto: ModifyBookingDto,
@@ -137,7 +138,7 @@ export class BookingsController {
   @ApiOperation({ summary: 'Cancel (not started, before the cutoff)' })
   @ApiOkResponse({ type: BookingGroupResponseDto })
   cancel(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
     @Query() { scope }: BookingScopeQueryDto,
     @Body() dto: CancelBookingDto,
@@ -151,7 +152,7 @@ export class BookingsController {
   @ApiOkResponse({ type: BookingGroupResponseDto })
   @ApiConflictResponse({ description: 'Seat taken after the current end, or no extensions left' })
   extend(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
     @Query() { scope }: BookingScopeQueryDto,
     @Body() dto: ExtendBookingDto,
@@ -167,7 +168,7 @@ export class BookingsController {
   })
   @ApiOkResponse({ type: QrCodesResponseDto })
   async qrCode(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
     @Query() query: QrCodeQueryDto,
   ): Promise<QrCodesResponseDto> {
@@ -179,7 +180,7 @@ export class BookingsController {
   @ApiOperation({ summary: 'Attendance status and check-in window' })
   @ApiOkResponse({ type: CheckInStatusResponseDto })
   checkInStatus(
-    @CurrentUser() user: AuthUser,
+    @CurrentAuthUser() user: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
   ): Promise<CheckInStatusResponseDto> {
     return this.attendance.getCheckInStatus(user, bookingId);

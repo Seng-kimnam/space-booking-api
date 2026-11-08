@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from '../auth/auth.module';
 import { TelegramController } from './controllers/telegram.controller';
 import { TelegramWebhookController } from './controllers/telegram-webhook.controller';
 import { TelegramAccount } from './entities/telegram-account.entity';
@@ -17,7 +18,7 @@ import { TelegramWebhookRegistrar } from './telegram-webhook.registrar';
  *               { provide: INBOX, useExisting: InboxService }]
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([TelegramAccount])],
+  imports: [TypeOrmModule.forFeature([TelegramAccount]), AuthModule],
   controllers: [TelegramController, TelegramWebhookController],
   providers: [
     TelegramBotClient,

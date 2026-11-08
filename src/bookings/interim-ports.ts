@@ -6,37 +6,20 @@ import type {
   NoShowCounterPort,
   OutboxPort,
   PlaceRulesPort,
-  SeatLookupPort,
-} from '../bookings/bookings.ports';
+} from './bookings.ports';
 import { OutboxEvent } from '../messaging/entities/outbox-event.entity';
 import { BookingPolicy } from '../places/entities/booking-policy.entity';
 import { Place } from '../places/entities/place.entity';
 import type { InboxPort, LinkCodesPort } from '../telegram/telegram.ports';
 
 /**
- * TEMPORARY stand-ins for ports owned by teammates' modules (seats, places,
- * users, messaging). Delete each one when the real provider merges and bind the
- * token with `useExisting` instead (see bookings.ports.ts / telegram.ports.ts).
+ * INTERIM stand-ins for ports whose owning modules haven't merged yet
+ * (places, users, messaging, OTP). Delete each one when its real provider lands
+ * and bind the token with `useExisting` instead (see bookings.ports.ts /
+ * telegram.ports.ts). Seats is already real (SeatsService.findBookable).
  */
 
-export function devSeatLookup(ds: DataSource): SeatLookupPort {
-  return {
-    async findBookable(seatIds, manager) {
-      const rows: { id: string; place_id: string; label: string }[] = await (
-        manager ?? ds.manager
-      ).query(
-        `SELECT s.id, s.place_id, s.label
-           FROM seats s JOIN places p ON p.id = s.place_id
-          WHERE s.id = ANY($1::uuid[]) AND s.status = 'ACTIVE' AND s.deleted_at IS NULL
-            AND p.is_active AND p.deleted_at IS NULL`,
-        [seatIds],
-      );
-      return rows.map((r) => ({ id: r.id, placeId: r.place_id, label: r.label }));
-    },
-  };
-}
-
-export function devPlaceRules(ds: DataSource): PlaceRulesPort {
+export function interimPlaceRules(ds: DataSource): PlaceRulesPort {
   return {
     async getBookingContext(placeId, manager?: EntityManager) {
       const m = manager ?? ds.manager;
@@ -72,7 +55,7 @@ export function devPlaceRules(ds: DataSource): PlaceRulesPort {
   };
 }
 
-export const devNoShowCounter: NoShowCounterPort = {
+export const interimNoShowCounter: NoShowCounterPort = {
   async incrementNoShow(manager, userId) {
     await manager.query('UPDATE users SET no_show_count = no_show_count + 1 WHERE id = $1', [
       userId,
@@ -80,7 +63,7 @@ export const devNoShowCounter: NoShowCounterPort = {
   },
 };
 
-export const devOutbox: OutboxPort = {
+export const interimOutbox: OutboxPort = {
   async add(manager, event) {
     // QueryDeepPartialEntity can't express a free-form jsonb Record; the fields match the entity.
     await manager.getRepository(OutboxEvent).insert(event as QueryDeepPartialEntity<OutboxEvent>);
@@ -90,7 +73,7 @@ export const devOutbox: OutboxPort = {
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** Telegram link codes in user_otps: hash only, single use, one live code per user. */
-export function devLinkCodes(ds: DataSource): LinkCodesPort {
+export function interimLinkCodes(ds: DataSource): LinkCodesPort {
   return {
     async issue(userId, purpose, ttlMinutes) {
       const code = randomBytes(24).toString('base64url'); // 32 chars, t.me-safe
@@ -125,7 +108,7 @@ export function devLinkCodes(ds: DataSource): LinkCodesPort {
 }
 
 /** inbox_events: insert first, run the handler only for a new (source, message_id). */
-export function devInbox(ds: DataSource): InboxPort {
+export function interimInbox(ds: DataSource): InboxPort {
   return {
     async handleOnce(message, handler) {
       const inserted: { id: string }[] = await ds.query(

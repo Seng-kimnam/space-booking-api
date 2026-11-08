@@ -42,7 +42,7 @@ test/
 | auth | refresh_tokens, auth_identities | §1 all `/auth/*`, `/auth/oauth/*`, `/auth/identities/*` | nothing (the JWT strategy is registered here; guards live in `common/`) |
 | places | places, place_opening_hours, place_closures, booking_policies | `/places`, `/places/:id`, `/admin/places/*` | `PlacesService`, `OpeningHoursService` (is the place open for a range, in its timezone), `BookingPoliciesService` |
 | areas | areas | `/places/:id/areas`, `/admin/places/:id/areas`, `/admin/areas/*` | `AreasService` |
-| seats | seats | `/seats`, `/seats/:id`, `/places/:id/seats`, `/admin/seats/*`, `/admin/places/:id/seats` | `SeatsService` |
+| seats | seats | `/seats`, `/seats/:id`, `/places/:id/seats`, `/admin/seats/:id*`, `/admin/places/:id/seats` (the `GET /admin/seats` list is admin's) | `SeatsService` |
 | bookings | bookings, booking_events, booking_qr_tokens | §4 bookings, §5 QR, plus `/seats/available` and `/seats/:id/availability` | `BookingsService`, `BookingsRepository` (for jobs/admin) |
 | telegram | telegram_accounts | `/telegram/*`, `/webhooks/telegram` | `TelegramBotClient`, `TelegramAccountsService` |
 | notifications | notifications | none | `NotificationsService` (schedule / skip in a transaction) |

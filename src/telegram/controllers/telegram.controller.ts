@@ -8,9 +8,9 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../auth/current-user.decorator';
-import { Roles } from '../../auth/role.decorator';
-import { UserRole } from '../../common/enums';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
+import { UserRole } from '../../users/entities/user.entity';
 import type { AuthUser } from '../../common/types/auth-user';
 import {
   TelegramLinkResponseDto,
@@ -20,7 +20,7 @@ import { TelegramAccountsService } from '../services/telegram-accounts.service';
 
 @ApiTags('Telegram')
 @ApiBearerAuth()
-@Roles(UserRole.USER)
+@Secured(UserRole.USER)
 @Controller('telegram')
 export class TelegramController {
   constructor(private readonly accounts: TelegramAccountsService) {}
@@ -33,14 +33,14 @@ export class TelegramController {
   })
   @ApiCreatedResponse({ type: TelegramLinkResponseDto })
   @ApiConflictResponse({ description: 'Telegram is already linked' })
-  link(@CurrentUser() user: AuthUser): Promise<TelegramLinkResponseDto> {
+  link(@CurrentAuthUser() user: AuthUser): Promise<TelegramLinkResponseDto> {
     return this.accounts.createLink(user.id);
   }
 
   @Get('status')
   @ApiOperation({ summary: 'Telegram connection status' })
   @ApiOkResponse({ type: TelegramStatusResponseDto })
-  status(@CurrentUser() user: AuthUser): Promise<TelegramStatusResponseDto> {
+  status(@CurrentAuthUser() user: AuthUser): Promise<TelegramStatusResponseDto> {
     return this.accounts.getStatus(user.id);
   }
 
@@ -48,7 +48,7 @@ export class TelegramController {
   @HttpCode(204)
   @ApiOperation({ summary: 'Unsubscribe from the Telegram bot' })
   @ApiNoContentResponse()
-  unlink(@CurrentUser() user: AuthUser): Promise<void> {
+  unlink(@CurrentAuthUser() user: AuthUser): Promise<void> {
     return this.accounts.unlink(user.id);
   }
 }

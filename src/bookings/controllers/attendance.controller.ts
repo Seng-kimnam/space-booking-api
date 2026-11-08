@@ -8,9 +8,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../auth/current-user.decorator';
-import { Roles } from '../../auth/role.decorator';
-import { QrPurpose, UserRole } from '../../common/enums';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
+import { QrPurpose } from '../../common/enums';
+import { UserRole } from '../../users/entities/user.entity';
 import type { AuthUser } from '../../common/types/auth-user';
 import { ScanQrDto } from '../dto/booking-request.dto';
 import { AttendanceResponseDto } from '../dto/booking-response.dto';
@@ -18,7 +19,7 @@ import { AttendanceService } from '../services/attendance.service';
 
 @ApiTags('Check-in / check-out')
 @ApiBearerAuth()
-@Roles(UserRole.USER, UserRole.ADMIN)
+@Secured(UserRole.USER, UserRole.ADMIN)
 @Controller()
 export class AttendanceController {
   constructor(private readonly attendance: AttendanceService) {}
@@ -30,7 +31,7 @@ export class AttendanceController {
   @ApiBadRequestResponse({ description: 'QR invalid, used or expired' })
   @ApiConflictResponse({ description: 'Outside the check-in window, or wrong status' })
   @ApiForbiddenResponse({ description: "Another user's QR (only staff may scan those)" })
-  checkIn(@CurrentUser() user: AuthUser, @Body() dto: ScanQrDto): Promise<AttendanceResponseDto> {
+  checkIn(@CurrentAuthUser() user: AuthUser, @Body() dto: ScanQrDto): Promise<AttendanceResponseDto> {
     return this.attendance.scan(user, dto.qr, QrPurpose.CHECK_IN);
   }
 
@@ -39,7 +40,7 @@ export class AttendanceController {
   @ApiOperation({ summary: 'Check out by scanning a one-time QR (also closes a forgotten checkout)' })
   @ApiOkResponse({ type: AttendanceResponseDto })
   @ApiBadRequestResponse({ description: 'QR invalid, used or expired' })
-  checkOut(@CurrentUser() user: AuthUser, @Body() dto: ScanQrDto): Promise<AttendanceResponseDto> {
+  checkOut(@CurrentAuthUser() user: AuthUser, @Body() dto: ScanQrDto): Promise<AttendanceResponseDto> {
     return this.attendance.scan(user, dto.qr, QrPurpose.CHECK_OUT);
   }
 }

@@ -17,9 +17,9 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../auth/current-user.decorator';
-import { Roles } from '../../auth/role.decorator';
-import { UserRole } from '../../common/enums';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
+import { UserRole } from '../../users/entities/user.entity';
 import type { AuthUser } from '../../common/types/auth-user';
 import {
   AdminBookingsQueryDto,
@@ -38,7 +38,7 @@ const uuid = new ParseUUIDPipe({ version: 'all' });
 
 @ApiTags('Admin: bookings')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN)
+@Secured(UserRole.ADMIN)
 @Controller('admin/bookings')
 export class AdminBookingsController {
   constructor(
@@ -66,7 +66,7 @@ export class AdminBookingsController {
   @ApiOkResponse({ type: BookingResponseDto })
   @ApiConflictResponse({ description: 'Not allowed from the current status' })
   async updateStatus(
-    @CurrentUser() admin: AuthUser,
+    @CurrentAuthUser() admin: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
     @Body() dto: AdminUpdateBookingStatusDto,
   ): Promise<BookingResponseDto> {
@@ -82,7 +82,7 @@ export class AdminBookingsController {
   @ApiOperation({ summary: 'Manual check-in' })
   @ApiOkResponse({ type: AttendanceResponseDto })
   checkIn(
-    @CurrentUser() admin: AuthUser,
+    @CurrentAuthUser() admin: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
   ): Promise<AttendanceResponseDto> {
     return this.attendance.manualCheckIn(admin, bookingId);
@@ -93,7 +93,7 @@ export class AdminBookingsController {
   @ApiOperation({ summary: 'Manual check-out' })
   @ApiOkResponse({ type: AttendanceResponseDto })
   checkOut(
-    @CurrentUser() admin: AuthUser,
+    @CurrentAuthUser() admin: AuthUser,
     @Param('bookingId', uuid) bookingId: string,
   ): Promise<AttendanceResponseDto> {
     return this.attendance.manualCheckOut(admin, bookingId);
