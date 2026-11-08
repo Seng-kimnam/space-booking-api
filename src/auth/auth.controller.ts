@@ -6,6 +6,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { AuthGuard } from './auth.guard';
@@ -20,7 +21,7 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.authService.registerUser(dto.email, dto.password);
+    return this.authService.registerUser(dto.email, dto.password, dto.name);
   }
 
   @Post('login')
@@ -28,14 +29,20 @@ export class AuthController {
     return this.authService.login(dto.email, dto.password);
   }
 
+  @ApiBearerAuth()
   @UseGuards(AuthGuard)
-  @UseInterceptors(RolesInterceptor)
-  @Roles('admin', 'user')
   @Get('me')
   me(@CurrentUser() user: { sub: number; email: string }) {
     return user;
   }
+
+  @Post('admin/register')
+  registerAdmin(@Body() dto: RegisterDto) {
+    return this.authService.createAdminUser(dto.email, dto.password, dto.name);
+  }
+  @ApiBearerAuth()
   @UseGuards(AuthGuard)
+  @UseInterceptors(RolesInterceptor)
   @Roles(UserRole.ADMIN)
   @Get('admin-only')
   adminOnly() {

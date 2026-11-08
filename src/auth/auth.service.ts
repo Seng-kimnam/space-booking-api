@@ -17,19 +17,23 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async registerUser(email: string, password: string) {
+  async registerUser(email: string, password: string, name: string) {
     const existing = await this.usersRepository.findOneBy({ email });
     if (existing) {
       throw new ConflictException('Email is already registered');
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const newRegister = this.usersRepository.create({ email, passwordHash });
+    const newRegister = this.usersRepository.create({
+      email,
+      passwordHash,
+      name,
+    });
 
     const user = await this.usersRepository.save(newRegister);
     return user;
   }
 
-  async createAdminUser(email: string, password: string) {
+  async createAdminUser(email: string, password: string, name: string) {
     const existing = await this.usersRepository.findOneBy({ email });
     if (existing) {
       throw new ConflictException('Email is already registered');
@@ -38,6 +42,7 @@ export class AuthService {
     const newAdmin = this.usersRepository.create({
       email,
       passwordHash,
+      name,
       role: UserRole.ADMIN,
     });
     const user = await this.usersRepository.save(newAdmin);

@@ -5,7 +5,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
 import { User } from '../users/entities/user.entity';
-
+import * as dotenv from 'dotenv';
+dotenv.config();
 @Module({
   imports: [
     TypeOrmModule.forFeature([User]),
