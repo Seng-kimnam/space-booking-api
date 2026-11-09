@@ -5,21 +5,29 @@ export class RoleResponseDto {
   @ApiProperty({ example: 1 })
   id: number;
 
-  @ApiProperty({ example: 'ADMIN' })
+  @ApiProperty({ example: 'MANAGER' })
   name: string;
 
-  @ApiProperty()
-  createdAt: Date;
+  @ApiProperty({ format: 'date-time' })
+  createdAt: string;
 
-  @ApiProperty()
-  updatedAt: Date;
+  @ApiProperty({ format: 'date-time' })
+  updatedAt: string;
 
+  // Explicit copy so the response never follows entity changes by accident.
   static from(role: Role): RoleResponseDto {
     const dto = new RoleResponseDto();
     dto.id = role.id;
     dto.name = role.name;
-    dto.createdAt = role.createdAt;
-    dto.updatedAt = role.updatedAt;
+    dto.createdAt = role.createdAt.toISOString();
+    dto.updatedAt = role.updatedAt.toISOString();
     return dto;
   }
+}
+
+export class RolePageResponseDto {
+  @ApiProperty({ type: [RoleResponseDto] }) items: RoleResponseDto[];
+  @ApiProperty() page: number;
+  @ApiProperty() limit: number;
+  @ApiProperty() total: number;
 }
