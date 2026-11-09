@@ -55,7 +55,8 @@ export class TelegramUpdatesService {
         // Only what's needed for auditing. Never the message text: /start
         // carries the link code.
         payload: {
-          chatId: update.message?.chat.id ?? update.my_chat_member?.chat.id ?? null,
+          chatId:
+            update.message?.chat.id ?? update.my_chat_member?.chat.id ?? null,
           command: update.message?.text
             ? (parseCommand(update.message.text)?.command ?? null)
             : null,
@@ -71,7 +72,8 @@ export class TelegramUpdatesService {
       const { chat, new_chat_member } = update.my_chat_member;
       if (
         chat.type === 'private' &&
-        (new_chat_member.status === 'kicked' || new_chat_member.status === 'left')
+        (new_chat_member.status === 'kicked' ||
+          new_chat_member.status === 'left')
       ) {
         await this.accounts.unlinkChat(String(chat.id));
       }

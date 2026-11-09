@@ -3,10 +3,13 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
 import { Secured } from '../../common/decorators/secured.decorator';
@@ -20,6 +23,8 @@ import { TelegramAccountsService } from '../services/telegram-accounts.service';
 
 @ApiTags('Telegram')
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+@ApiForbiddenResponse({ description: 'Only USER accounts can link Telegram' })
 @Secured(UserRole.USER)
 @Controller('telegram')
 export class TelegramController {
@@ -33,6 +38,9 @@ export class TelegramController {
   })
   @ApiCreatedResponse({ type: TelegramLinkResponseDto })
   @ApiConflictResponse({ description: 'Telegram is already linked' })
+  @ApiServiceUnavailableResponse({
+    description: 'The Telegram bot is not configured on the server',
+  })
   link(@CurrentAuthUser() user: AuthUser): Promise<TelegramLinkResponseDto> {
     return this.accounts.createLink(user.id);
   }
@@ -40,7 +48,9 @@ export class TelegramController {
   @Get('status')
   @ApiOperation({ summary: 'Telegram connection status' })
   @ApiOkResponse({ type: TelegramStatusResponseDto })
-  status(@CurrentAuthUser() user: AuthUser): Promise<TelegramStatusResponseDto> {
+  status(
+    @CurrentAuthUser() user: AuthUser,
+  ): Promise<TelegramStatusResponseDto> {
     return this.accounts.getStatus(user.id);
   }
 

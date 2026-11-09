@@ -1,7 +1,13 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { secretsMatch, TelegramSecretGuard } from './guards/telegram-secret.guard';
+import {
+  secretsMatch,
+  TelegramSecretGuard,
+} from './guards/telegram-secret.guard';
 import { TelegramAccountsService } from './services/telegram-accounts.service';
-import { parseCommand, TelegramUpdatesService } from './services/telegram-updates.service';
+import {
+  parseCommand,
+  TelegramUpdatesService,
+} from './services/telegram-updates.service';
 import { TelegramBotClient } from './telegram-bot.client';
 import type { InboxPort } from './telegram.ports';
 import type { TelegramUpdate } from './telegram.types';
@@ -34,11 +40,15 @@ describe('TelegramSecretGuard', () => {
   });
 
   it.each([['wrong'], [undefined]])('rejects %p', (header) => {
-    expect(() => guard('s3cret').canActivate(context(header))).toThrow(UnauthorizedException);
+    expect(() => guard('s3cret').canActivate(context(header))).toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('rejects everything when no secret is configured', () => {
-    expect(() => guard('').canActivate(context(''))).toThrow(UnauthorizedException);
+    expect(() => guard('').canActivate(context(''))).toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('compares secrets of different lengths safely', () => {
@@ -72,7 +82,11 @@ describe('TelegramUpdatesService', () => {
     return { service, accounts, bot, inbox };
   }
 
-  const message = (updateId: number, text: string, type = 'private'): TelegramUpdate => ({
+  const message = (
+    updateId: number,
+    text: string,
+    type = 'private',
+  ): TelegramUpdate => ({
     update_id: updateId,
     message: {
       message_id: 1,
@@ -86,7 +100,10 @@ describe('TelegramUpdatesService', () => {
     const { service, accounts, bot } = setup();
     await service.handle(message(1, '/start CODE123'));
     expect(accounts.linkChat).toHaveBeenCalledWith('CODE123', '42', 'alice');
-    expect(bot.sendMessage).toHaveBeenCalledWith('42', expect.stringContaining('Subscribed'));
+    expect(bot.sendMessage).toHaveBeenCalledWith(
+      '42',
+      expect.stringContaining('Subscribed'),
+    );
   });
 
   it('processes a redelivered update only once', async () => {
@@ -99,7 +116,9 @@ describe('TelegramUpdatesService', () => {
   it('never stores the link code in the inbox payload', async () => {
     const { service, inbox } = setup();
     await service.handle(message(2, '/start SECRETCODE'));
-    const stored = JSON.stringify((inbox.handleOnce as jest.Mock).mock.calls[0][0]);
+    const stored = JSON.stringify(
+      (inbox.handleOnce as jest.Mock).mock.calls[0][0],
+    );
     expect(stored).not.toContain('SECRETCODE');
   });
 
@@ -133,6 +152,8 @@ describe('TelegramUpdatesService', () => {
   it('still succeeds when the reply fails', async () => {
     const { service, bot } = setup();
     bot.sendMessage.mockRejectedValue(new Error('network'));
-    await expect(service.handle(message(7, '/start CODE'))).resolves.toBeUndefined();
+    await expect(
+      service.handle(message(7, '/start CODE')),
+    ).resolves.toBeUndefined();
   });
 });

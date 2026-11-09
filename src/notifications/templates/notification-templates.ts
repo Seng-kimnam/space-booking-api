@@ -53,7 +53,9 @@ function formatDate(iso: string, timezone: string): string {
 }
 
 function seatsText(labels: string[]): string {
-  return labels.length === 1 ? `seat ${labels[0]}` : `seats ${labels.join(', ')}`;
+  return labels.length === 1
+    ? `seat ${labels[0]}`
+    : `seats ${labels.join(', ')}`;
 }
 
 /** Returns null for types this module has no template for (auth emails). */
@@ -125,7 +127,9 @@ export function renderNotification(
         title: 'Booking extended',
         body:
           `Your booking for ${where} now ends at ${end}` +
-          (payload.previousEndAt ? ` (was ${formatTime(payload.previousEndAt, tz)}).` : '.'),
+          (payload.previousEndAt
+            ? ` (was ${formatTime(payload.previousEndAt, tz)}).`
+            : '.'),
       };
     case NotificationType.CHECKED_IN:
       return {

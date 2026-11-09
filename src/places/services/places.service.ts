@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -58,6 +59,10 @@ export function definedOnly<T extends object>(obj: T): Partial<T> {
 
 @Injectable()
 export class PlacesService {
+  // Forwards to AppLogger (main.ts). Admin writes are logged after commit as an
+  // audit trail; reads are not.
+  private readonly logger = new Logger(PlacesService.name);
+
   constructor(
     @InjectRepository(Place) private readonly places: Repository<Place>,
     @InjectRepository(PlaceOpeningHour)
@@ -135,6 +140,7 @@ export class PlacesService {
       await this.replaceClosures(m, place.id, dto.closures ?? []);
       return place.id;
     });
+    this.logger.log(`Place created: id=${placeId} name=${dto.name}`);
     return this.detail(placeId, true);
   }
 
@@ -160,6 +166,12 @@ export class PlacesService {
       if (closures) await this.replaceClosures(m, placeId, closures);
       if (bookingPolicy) await this.mergePolicy(m, placeId, bookingPolicy);
     });
+    const changed = Object.keys(dto).filter(
+      (k) => dto[k as keyof UpdatePlaceDto] !== undefined,
+    );
+    this.logger.log(
+      `Place updated: id=${placeId} fields=${changed.join(',') || 'none'}`,
+    );
     return this.detail(placeId, true);
   }
 
@@ -169,6 +181,7 @@ export class PlacesService {
     const place = await this.places.findOneBy({ id: placeId });
     if (!place) throw new NotFoundException('Place not found');
     await this.places.softDelete({ id: placeId });
+    this.logger.log(`Place deleted: id=${placeId} name=${place.name}`);
   }
 
   // includeInactive: admins still see (and edit) inactive places.

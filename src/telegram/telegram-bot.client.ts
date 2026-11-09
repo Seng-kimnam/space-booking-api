@@ -4,17 +4,27 @@ import { telegramConfig } from '../configuration/telegram.config';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
+// 400 descriptions meaning the chat can never receive messages again.
+const GONE_400 = /chat not found|user is deactivated|peer_id_invalid/i;
+
 export class TelegramApiError extends Error {
   constructor(
     readonly errorCode: number,
-    description: string,
+    readonly description: string,
   ) {
     super(`Telegram API error ${errorCode}: ${description}`);
   }
 
-  /** 403: the user blocked the bot or deleted the chat. Retrying won't help. */
+  /**
+   * Retrying won't help: 403 (the user blocked the bot or deleted the chat), or
+   * a 400 saying the chat doesn't exist / the account was deleted. Callers
+   * unlink the chat and skip the message instead of retrying 5 times.
+   */
   get isRecipientGone(): boolean {
-    return this.errorCode === 403;
+    return (
+      this.errorCode === 403 ||
+      (this.errorCode === 400 && GONE_400.test(this.description))
+    );
   }
 }
 
@@ -88,7 +98,17 @@ export class TelegramBotClient {
       throw new Error(`Telegram ${method} request failed (network or timeout)`);
     }
 
-    const data = (await response.json()) as TelegramResponse<T>;
+    let data: TelegramResponse<T>;
+    try {
+      data = (await response.json()) as TelegramResponse<T>;
+    } catch {
+      // e.g. an HTML 502 page from a proxy: keep it a TelegramApiError (retried
+      // by the dispatcher) instead of an opaque SyntaxError.
+      throw new TelegramApiError(
+        response.status,
+        `non-JSON response to ${method}`,
+      );
+    }
     if (!data.ok) {
       throw new TelegramApiError(
         data.error_code ?? response.status,
