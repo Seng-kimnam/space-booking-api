@@ -1,9 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import {
-  DocumentBuilder,
-  OpenAPIObject,
-  SwaggerModule,
-} from '@nestjs/swagger';
+import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 
 export const SWAGGER_PATH = 'api/docs';
 

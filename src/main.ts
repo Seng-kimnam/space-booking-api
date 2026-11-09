@@ -10,6 +10,7 @@ import {
   SWAGGER_PATH,
 } from './configuration';
 import { AppLogger } from './logger/app-logger';
+import { VALIDATION_PIPE_OPTIONS } from './common/validation-pipe.options';
 
 async function bootstrap() {
   // Buffer startup logs until our logger is attached, so they share its format.
@@ -18,9 +19,7 @@ async function bootstrap() {
   const logging = app.get<ConfigType<typeof loggerConfig>>(loggerConfig.KEY);
 
   app.useLogger(new AppLogger({ json: logging.json, file: logging.file }));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
-  );
+  app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
 
   app.setGlobalPrefix(config.globalPrefix);
 

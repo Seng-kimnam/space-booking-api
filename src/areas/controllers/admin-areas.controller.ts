@@ -28,7 +28,7 @@ import {
 import { AuthGuard } from '../../auth/auth.guard';
 import { Roles } from '../../auth/role.decorator';
 import { RolesInterceptor } from '../../auth/roles.interceptor';
-import { UserRole } from '../../users/entities/user.entity';
+import { UserRole } from '../../common/enums';
 import {
   AreaResponseDto,
   CreateAreaDto,
