@@ -23,7 +23,8 @@ import { bookingConfig, telegramConfig } from '../../../src/configuration';
 import { dataSourceOptions } from '../../../src/database/data-source';
 import { NotificationDispatcher } from '../../../src/notifications/services/notification-dispatcher.service';
 import { TelegramBotClient } from '../../../src/telegram/telegram-bot.client';
-import { TestPortsModule } from '../../utils/test-ports.module';
+import { TestPortsModule, testPlaceRules } from '../../utils/test-ports.module';
+import { PLACE_RULES } from '../../../src/bookings/bookings.ports';
 
 /**
  * Bookings against a REAL Postgres (AGENTS.md section 10): the exclusion
@@ -87,6 +88,9 @@ describe('Bookings (integration, real Postgres)', () => {
     })
       .overrideProvider(TelegramBotClient)
       .useValue({ isConfigured: true, sendMessage })
+      // Opening hours aren't under test here; places e2e covers isOpenForRange.
+      .overrideProvider(PLACE_RULES)
+      .useFactory({ factory: testPlaceRules, inject: [DataSource] })
       .compile();
 
     ds = moduleRef.get(DataSource);

@@ -2,11 +2,7 @@ import { Global, Module, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { DataSource } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm';
-import {
-  NO_SHOW_COUNTER,
-  OUTBOX,
-  PLACE_RULES,
-} from '../../src/bookings/bookings.ports';
+import { NO_SHOW_COUNTER, OUTBOX } from '../../src/bookings/bookings.ports';
 import type {
   NoShowCounterPort,
   OutboxPort,
@@ -19,11 +15,16 @@ import { INBOX, TELEGRAM_LINK_CODES } from '../../src/telegram/telegram.ports';
 
 /**
  * TEST-ONLY stand-ins for the ports that teammates' modules will provide
- * (places, users, messaging; seats is real now). Real SQL on the real test database, so the
+ * (users, messaging; seats and places are real now). Real SQL on the real test database, so the
  * bookings module is exercised end to end. Not a substitute for those modules:
  * opening hours are not checked here (always open).
  */
-function placeRules(ds: DataSource): PlaceRulesPort {
+/**
+ * BookingsModule binds PLACE_RULES to the real PlacesService, which a global
+ * module can't shadow, so tests that want "always open" override the token:
+ *   .overrideProvider(PLACE_RULES).useFactory({ factory: testPlaceRules, inject: [DataSource] })
+ */
+export function testPlaceRules(ds: DataSource): PlaceRulesPort {
   return {
     async getBookingContext(placeId, manager?: EntityManager) {
       const m = manager ?? ds.manager;
@@ -52,12 +53,11 @@ const outbox: OutboxPort = {
 @Global()
 @Module({
   providers: [
-    { provide: PLACE_RULES, useFactory: placeRules, inject: [DataSource] },
     { provide: NO_SHOW_COUNTER, useValue: noShowCounter },
     { provide: OUTBOX, useValue: outbox },
     { provide: TELEGRAM_LINK_CODES, useValue: { issue: jest.fn(), consume: jest.fn() } },
     { provide: INBOX, useValue: { handleOnce: jest.fn() } },
   ],
-  exports: [PLACE_RULES, NO_SHOW_COUNTER, OUTBOX, TELEGRAM_LINK_CODES, INBOX],
+  exports: [NO_SHOW_COUNTER, OUTBOX, TELEGRAM_LINK_CODES, INBOX],
 })
 export class TestPortsModule {}

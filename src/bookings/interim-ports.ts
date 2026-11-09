@@ -1,60 +1,17 @@
-import { NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm';
-import type {
-  NoShowCounterPort,
-  OutboxPort,
-  PlaceRulesPort,
-} from './bookings.ports';
+import type { NoShowCounterPort, OutboxPort } from './bookings.ports';
 import { OutboxEvent } from '../messaging/entities/outbox-event.entity';
-import { BookingPolicy } from '../places/entities/booking-policy.entity';
-import { Place } from '../places/entities/place.entity';
 import { UserOtp } from '../users/entities/user-otp.entity';
 import type { InboxPort, LinkCodesPort } from '../telegram/telegram.ports';
 
 /**
  * INTERIM stand-ins for ports whose owning modules haven't merged yet
- * (places, users, messaging, OTP). Delete each one when its real provider lands
+ * (users, messaging, OTP). Delete each one when its real provider lands
  * and bind the token with `useExisting` instead (see bookings.ports.ts /
- * telegram.ports.ts). Seats is already real (SeatsService.findBookable).
+ * telegram.ports.ts). Seats and places are already real (SeatsService, PlacesService).
  */
-
-export function interimPlaceRules(ds: DataSource): PlaceRulesPort {
-  return {
-    async getBookingContext(placeId, manager?: EntityManager) {
-      const m = manager ?? ds.manager;
-      const place = await m.getRepository(Place).findOneBy({ id: placeId, isActive: true });
-      const policy = await m.getRepository(BookingPolicy).findOneBy({ placeId });
-      if (!place || !policy) throw new NotFoundException('Place not found');
-      return { placeId, name: place.name, timezone: place.timezone, policy };
-    },
-
-    // The range must fit inside one opening window (opened on the local start
-    // date, or the day before for overnight hours) that isn't a closure date.
-    async isOpenForRange(placeId, range, manager?: EntityManager) {
-      const rows: { open: boolean }[] = await (manager ?? ds.manager).query(
-        `SELECT EXISTS (
-           SELECT 1
-             FROM places p
-             CROSS JOIN LATERAL (SELECT ($2::timestamptz AT TIME ZONE p.timezone) AS ls,
-                                        ($3::timestamptz AT TIME ZONE p.timezone) AS le) r
-             CROSS JOIN LATERAL (VALUES (r.ls::date), (r.ls::date - 1)) d(day)
-             JOIN place_opening_hours h
-               ON h.place_id = p.id AND h.weekday = EXTRACT(DOW FROM d.day)
-            WHERE p.id = $1
-              AND r.ls >= d.day + h.open_time
-              AND r.le <= d.day + h.close_time
-                          + CASE WHEN h.closes_next_day THEN interval '1 day' ELSE interval '0' END
-              AND NOT EXISTS (SELECT 1 FROM place_closures c
-                               WHERE c.place_id = p.id AND c.date = d.day)
-         ) AS open`,
-        [placeId, range.start.toISOString(), range.end.toISOString()],
-      );
-      return rows[0]?.open === true;
-    },
-  };
-}
 
 export const interimNoShowCounter: NoShowCounterPort = {
   async incrementNoShow(manager, userId) {

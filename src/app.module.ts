@@ -6,6 +6,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { configurations, databaseConfig } from './configuration';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
+import { PlacesModule } from './places/places.module';
+import { AreasModule } from './areas/areas.module';
 import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 import { BookingsModule } from './bookings/bookings.module';
@@ -26,8 +28,10 @@ import { TelegramModule } from './telegram/telegram.module';
     UsersModule,
     RolesModule,
     AuthModule,
+    PlacesModule,
+    AreasModule,
     SeatsModule,
-    // INTERIM: places/messaging/OTP/no-show providers until those modules merge.
+    // INTERIM: messaging/OTP/no-show providers until those modules merge.
     InterimPortsModule,
     TelegramModule,
     NotificationsModule,
