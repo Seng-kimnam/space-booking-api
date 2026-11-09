@@ -7,4 +7,9 @@ export enum NotificationType {
   CHECKOUT_REMINDER = 'CHECKOUT_REMINDER',
   BOOKING_EXPIRED = 'BOOKING_EXPIRED',
   FORGOTTEN_CHECKOUT = 'FORGOTTEN_CHECKOUT',
+  // One alert per change, so not limited to one per booking (see notification.entity.ts).
+  BOOKING_MODIFIED = 'BOOKING_MODIFIED',
+  BOOKING_EXTENDED = 'BOOKING_EXTENDED',
+  CHECKED_IN = 'CHECKED_IN',
+  CHECKED_OUT = 'CHECKED_OUT',
 }

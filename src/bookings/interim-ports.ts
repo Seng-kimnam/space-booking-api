@@ -10,6 +10,7 @@ import type {
 import { OutboxEvent } from '../messaging/entities/outbox-event.entity';
 import { BookingPolicy } from '../places/entities/booking-policy.entity';
 import { Place } from '../places/entities/place.entity';
+import { UserOtp } from '../users/entities/user-otp.entity';
 import type { InboxPort, LinkCodesPort } from '../telegram/telegram.ports';
 
 /**
@@ -96,12 +97,17 @@ export function interimLinkCodes(ds: DataSource): LinkCodesPort {
 
     async consume(code, purpose) {
       // Atomic: a concurrent second consume finds used_at set and gets nothing.
-      const rows: { user_id: string }[] = await ds.query(
-        `UPDATE user_otps SET used_at = now()
-          WHERE code_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
-          RETURNING user_id`,
-        [sha256(code), purpose],
-      );
+      // Query builder, not ds.query(): for UPDATE ... RETURNING, ds.query() on
+      // Postgres returns [rows, affectedCount], not rows. `.raw` is always rows.
+      const result = await ds
+        .createQueryBuilder()
+        .update(UserOtp)
+        .set({ usedAt: () => 'now()' })
+        .where('code_hash = :hash AND purpose = :purpose', { hash: sha256(code), purpose })
+        .andWhere('used_at IS NULL AND expires_at > now()')
+        .returning('user_id')
+        .execute();
+      const rows = result.raw as { user_id: string }[];
       return rows[0]?.user_id ?? null;
     },
   };

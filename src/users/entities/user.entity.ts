@@ -26,22 +26,8 @@ export class User {
   @Exclude()
   passwordHash: string;
 
-  @Column({
-    name: 'reset_token_hash',
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-  })
-  @Exclude()
-  resetTokenHash: string | null;
-
-  @Column({
-    name: 'reset_token_expires_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
-  @Exclude()
-  resetTokenExpiresAt: Date | null;
+  // Password-reset codes live in user_otps (purpose PASSWORD_RESET), not on users
+  // (AGENTS.md section 5, docs/erd.md).
 
   @Column({ name: 'no_show_count', type: 'int', default: 0 })
   noShowCount: number;
@@ -56,7 +42,4 @@ export class User {
     default: UserRole.USER,
   })
   role: UserRole;
-
-  @Column({ name: 'place_id', type: 'uuid', nullable: true })
-  placeId: string | null;
 }

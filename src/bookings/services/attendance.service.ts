@@ -223,6 +223,7 @@ export class AttendanceService {
     // Other live check-in codes (e.g. per-seat codes after a group scan) die now.
     await this.qr.revokeLive(manager, ids, QrPurpose.CHECK_IN);
     await this.notifications.skipPending(manager, ids, [NotificationType.LATE_CHECKIN]);
+    await this.scheduleAttendanceAlert(manager, bookings, NotificationType.CHECKED_IN, now);
     for (const b of bookings) b.status = BookingStatus.CHECKED_IN;
     await this.activity.record(manager, bookings, {
       event: BookingEventType.CHECKED_IN,
@@ -255,6 +256,7 @@ export class AttendanceService {
       NotificationType.CHECKOUT_REMINDER,
       NotificationType.FORGOTTEN_CHECKOUT,
     ]);
+    await this.scheduleAttendanceAlert(manager, bookings, NotificationType.CHECKED_OUT, now);
     for (const b of bookings) b.status = BookingStatus.COMPLETED;
     await this.activity.record(manager, bookings, {
       event,
@@ -262,5 +264,24 @@ export class AttendanceService {
       actor: { userId: actor.id },
       metadata: { method },
     });
+  }
+
+  /** QR scan or admin manual action alike: the user hears about it on Telegram. */
+  private scheduleAttendanceAlert(
+    manager: EntityManager,
+    bookings: Booking[],
+    type: NotificationType.CHECKED_IN | NotificationType.CHECKED_OUT,
+    now: Date,
+  ): Promise<void> {
+    return this.notifications.schedule(
+      manager,
+      bookings.map((b) => ({
+        userId: b.userId,
+        bookingId: b.id,
+        type,
+        scheduledAt: now,
+        payload: this.activity.alertPayload(b, b.seat, b.seat.place),
+      })),
+    );
   }
 }

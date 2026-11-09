@@ -64,8 +64,30 @@ describe('notification templates', () => {
     NotificationType.CHECKOUT_REMINDER,
     NotificationType.BOOKING_EXPIRED,
     NotificationType.FORGOTTEN_CHECKOUT,
+    NotificationType.BOOKING_MODIFIED,
+    NotificationType.BOOKING_EXTENDED,
+    NotificationType.CHECKED_IN,
+    NotificationType.CHECKED_OUT,
   ])('has a template for %s', (type) => {
     expect(renderNotification(type, payload(['A1']))).not.toBeNull();
+  });
+
+  it('shows the old and new time when a booking is modified', () => {
+    const msg = renderNotification(NotificationType.BOOKING_MODIFIED, {
+      ...payload(['A1']),
+      previousStartAt: '2026-11-09T02:00:00.000Z',
+      previousEndAt: '2026-11-09T03:00:00.000Z',
+    });
+    expect(msg?.body).toContain('Was: Mon, 9 Nov 2026, 09:00 - 10:00');
+    expect(msg?.body).toContain('Now: Mon, 9 Nov 2026, 10:00 - 11:00');
+  });
+
+  it('shows the previous end when a booking is extended', () => {
+    const msg = renderNotification(NotificationType.BOOKING_EXTENDED, {
+      ...payload(['A1']),
+      previousEndAt: '2026-11-09T03:30:00.000Z',
+    });
+    expect(msg?.body).toContain('now ends at 11:00 (was 10:30)');
   });
 
   it('has no template for auth emails (owned by auth)', () => {

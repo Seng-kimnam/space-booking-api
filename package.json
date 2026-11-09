@@ -27,7 +27,8 @@
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:show": "npm run typeorm -- migration:show",
-    "seed": "ts-node src/database/seeds/run-seeds.ts"
+    "seed": "ts-node src/database/seeds/run-seeds.ts",
+    "telegram:poll": "ts-node scripts/telegram-dev-poller.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",

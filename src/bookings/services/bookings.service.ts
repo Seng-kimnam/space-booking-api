@@ -37,6 +37,7 @@ import {
   toBookingResponse,
 } from '../dto/booking-response.dto';
 import { Booking } from '../entities/booking.entity';
+import { addMinutes } from '../domain/time';
 import { BookingsRepository } from '../repositories/bookings.repository';
 import {
   BookingActivityService,
@@ -56,6 +57,11 @@ const IDEMPOTENCY_UK = 'bookings_user_idempotency_uk';
  * booking_events, notifications and outbox_events rows (AGENTS.md section 6.11).
  * Overlaps are rejected by the database exclusion constraint only.
  */
+/** The times a pending alert's message shows, after its booking moved. */
+function rangeTimes(range: TimeRange): { startAt: string; endAt: string } {
+  return { startAt: range.start.toISOString(), endAt: range.end.toISOString() };
+}
+
 @Injectable()
 export class BookingsService {
   constructor(
@@ -207,13 +213,20 @@ export class BookingsService {
       for (const b of targets) await this.bookings.updateRange(manager, b, range);
 
       const ids = targets.map((b) => b.id);
+      // Codes carry the old window in expires_at; the user fetches new ones.
+      await this.qr.revokeLive(manager, ids);
       await this.notifications.reschedule(
         manager,
         ids,
         NotificationType.LATE_CHECKIN,
         this.activity.lateCheckinAt(range, ctx.policy),
+        {
+          ...rangeTimes(range),
+          checkinDeadline: addMinutes(range.start, ctx.policy.checkinGraceMinutes).toISOString(),
+        },
       );
       await this.rescheduleReminder(manager, ids, range, ctx.policy);
+      await this.scheduleChangeAlert(manager, targets, NotificationType.BOOKING_MODIFIED, oldRanges, now);
       await this.activity.record(manager, targets, {
         event: BookingEventType.MODIFIED,
         routingKey: BookingRoutingKey.MODIFIED,
@@ -249,6 +262,7 @@ export class BookingsService {
         await this.rescheduleReminder(manager, [b.id], range, ctx.policy);
       }
 
+      await this.scheduleChangeAlert(manager, targets, NotificationType.BOOKING_EXTENDED, oldRanges, now);
       await this.activity.record(manager, targets, {
         event: BookingEventType.EXTENDED,
         routingKey: BookingRoutingKey.EXTENDED,
@@ -357,6 +371,37 @@ export class BookingsService {
     });
   }
 
+  /** Immediate "your booking changed" alert, showing the range before and after. */
+  private scheduleChangeAlert(
+    manager: EntityManager,
+    targets: Booking[],
+    type: NotificationType.BOOKING_MODIFIED | NotificationType.BOOKING_EXTENDED,
+    oldRanges: Map<string, TimeRange>,
+    now: Date,
+  ): Promise<void> {
+    return this.notifications.schedule(
+      manager,
+      targets.map((b) => {
+        const before = oldRanges.get(b.id);
+        return {
+          userId: b.userId,
+          bookingId: b.id,
+          type,
+          scheduledAt: now,
+          payload: {
+            ...this.activity.alertPayload(b, b.seat, b.seat.place),
+            ...(before
+              ? {
+                  previousStartAt: before.start.toISOString(),
+                  previousEndAt: before.end.toISOString(),
+                }
+              : {}),
+          },
+        };
+      }),
+    );
+  }
+
   private async rescheduleReminder(
     manager: EntityManager,
     ids: string[],
@@ -365,7 +410,16 @@ export class BookingsService {
   ): Promise<void> {
     const at = this.activity.checkoutReminderAt(range, policy);
     if (at) {
-      await this.notifications.reschedule(manager, ids, NotificationType.CHECKOUT_REMINDER, at);
+      await this.notifications.reschedule(
+        manager,
+        ids,
+        NotificationType.CHECKOUT_REMINDER,
+        at,
+        {
+          ...rangeTimes(range),
+          checkinDeadline: addMinutes(range.start, policy.checkinGraceMinutes).toISOString(),
+        },
+      );
     } else {
       await this.notifications.skipPending(manager, ids, [NotificationType.CHECKOUT_REMINDER]);
     }

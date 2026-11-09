@@ -16,6 +16,9 @@ export interface BookingAlertPayload {
   endAt: string;
   /** LATE_CHECKIN / BOOKING_EXPIRED: start + checkin_grace_minutes. */
   checkinDeadline?: string;
+  /** BOOKING_MODIFIED / BOOKING_EXTENDED: the range before the change. */
+  previousStartAt?: string;
+  previousEndAt?: string;
 }
 
 const BOOKING_TYPES = new Set<NotificationType>([
@@ -25,6 +28,10 @@ const BOOKING_TYPES = new Set<NotificationType>([
   NotificationType.CHECKOUT_REMINDER,
   NotificationType.BOOKING_EXPIRED,
   NotificationType.FORGOTTEN_CHECKOUT,
+  NotificationType.BOOKING_MODIFIED,
+  NotificationType.BOOKING_EXTENDED,
+  NotificationType.CHECKED_IN,
+  NotificationType.CHECKED_OUT,
 ]);
 
 function formatTime(iso: string, timezone: string): string {
@@ -65,6 +72,10 @@ export function renderNotification(
   const deadline = payload.checkinDeadline
     ? formatTime(payload.checkinDeadline, tz)
     : null;
+  const before =
+    payload.previousStartAt && payload.previousEndAt
+      ? `${formatDate(payload.previousStartAt, tz)}, ${formatTime(payload.previousStartAt, tz)} - ${formatTime(payload.previousEndAt, tz)}`
+      : null;
 
   switch (type) {
     case NotificationType.BOOKING_CONFIRMED:
@@ -100,6 +111,31 @@ export function renderNotification(
       return {
         title: 'Booking cancelled',
         body: `Your booking for ${where} (${when}) was cancelled.`,
+      };
+    case NotificationType.BOOKING_MODIFIED:
+      return {
+        title: 'Booking changed',
+        body:
+          `Your booking for ${where} was changed.\n` +
+          (before ? `Was: ${before}\nNow: ${when}` : `New time: ${when}`) +
+          '\nYour old QR code no longer works: open the booking in the app for a new one.',
+      };
+    case NotificationType.BOOKING_EXTENDED:
+      return {
+        title: 'Booking extended',
+        body:
+          `Your booking for ${where} now ends at ${end}` +
+          (payload.previousEndAt ? ` (was ${formatTime(payload.previousEndAt, tz)}).` : '.'),
+      };
+    case NotificationType.CHECKED_IN:
+      return {
+        title: 'Checked in',
+        body: `You're checked in to ${where}. Your booking ends at ${end}; check out with your QR code when you leave.`,
+      };
+    case NotificationType.CHECKED_OUT:
+      return {
+        title: 'Checked out',
+        body: `You've checked out of ${where}. Thanks for visiting!`,
       };
     default:
       return null;

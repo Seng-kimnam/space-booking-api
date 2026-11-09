@@ -42,7 +42,10 @@ CREATE TYPE notification_channel AS ENUM ('EMAIL', 'TELEGRAM');
 CREATE TYPE notification_type    AS ENUM ('EMAIL_VERIFY_OTP', 'PASSWORD_RESET_OTP',
                                           'BOOKING_CONFIRMED', 'BOOKING_CANCELLED',
                                           'LATE_CHECKIN', 'CHECKOUT_REMINDER',
-                                          'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT');
+                                          'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT',
+                                          -- one per change, not once per booking:
+                                          'BOOKING_MODIFIED', 'BOOKING_EXTENDED',
+                                          'CHECKED_IN', 'CHECKED_OUT');
 CREATE TYPE notification_status  AS ENUM ('PENDING', 'SENT', 'FAILED', 'SKIPPED');
 
 -- -----------------------------------------------------------------------------
@@ -370,9 +373,13 @@ CREATE TABLE notifications (
   CONSTRAINT notifications_sent_consistent CHECK ((status = 'SENT') = (sent_at IS NOT NULL)),
   CONSTRAINT notifications_attempts_chk    CHECK (attempts >= 0)
 );
--- Jobs can run repeatedly without double-sending.
+-- Jobs can run repeatedly without double-sending. Only alerts that happen once
+-- per booking; modify/extend/check-in/check-out alerts get a row per change.
 CREATE UNIQUE INDEX notifications_booking_type_channel_uk
-  ON notifications (booking_id, type, channel) WHERE booking_id IS NOT NULL;
+  ON notifications (booking_id, type, channel)
+  WHERE booking_id IS NOT NULL
+    AND type IN ('BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'LATE_CHECKIN',
+                 'CHECKOUT_REMINDER', 'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT');
 
 -- =============================================================================
 -- Integration: outbox (we publish) and inbox (we consume)

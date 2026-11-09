@@ -27,13 +27,15 @@ import { User } from '../../users/entities/user.entity';
   `(status = 'SENT') = (sent_at IS NOT NULL)`,
 )
 @Check('notifications_attempts_chk', 'attempts >= 0')
-// Jobs can run repeatedly without double-sending.
+// Jobs can run repeatedly without double-sending. Only for alerts that happen
+// once per booking: BOOKING_MODIFIED / BOOKING_EXTENDED / CHECKED_IN / CHECKED_OUT
+// are sent once per change.
 @Index(
   'notifications_booking_type_channel_uk',
   ['bookingId', 'type', 'channel'],
   {
     unique: true,
-    where: 'booking_id IS NOT NULL',
+    where: `booking_id IS NOT NULL AND type IN ('BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'LATE_CHECKIN', 'CHECKOUT_REMINDER', 'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT')`,
   },
 )
 @Index('notifications_pending_due_idx', ['scheduledAt'], {

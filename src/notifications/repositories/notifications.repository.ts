@@ -37,16 +37,26 @@ export class NotificationsRepository {
     bookingIds: string[],
     type: NotificationType,
     scheduledAt: Date,
+    payloadPatch?: Record<string, unknown>,
   ): Promise<void> {
     if (bookingIds.length === 0) return;
-    await manager.getRepository(Notification).update(
-      {
-        bookingId: In(bookingIds),
+    // payload || patch: refresh the times the message shows, keep the rest.
+    await manager
+      .createQueryBuilder()
+      .update(Notification)
+      .set({
+        scheduledAt,
+        attempts: 0,
+        lastError: null,
+        ...(payloadPatch ? { payload: () => 'payload || CAST(:patch AS jsonb)' } : {}),
+      })
+      .where('booking_id IN (:...bookingIds) AND type = :type AND status = :status', {
+        bookingIds,
         type,
         status: NotificationStatus.PENDING,
-      },
-      { scheduledAt, attempts: 0, lastError: null },
-    );
+      })
+      .setParameter('patch', JSON.stringify(payloadPatch ?? {}))
+      .execute();
   }
 
   async skipPending(

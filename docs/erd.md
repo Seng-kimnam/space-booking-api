@@ -502,7 +502,7 @@ Linking flow: `POST /telegram/link` creates a `TELEGRAM_LINK` row in `user_otps`
 | payload | jsonb | NOT NULL, default `'{}'`; **never contains OTP codes or tokens** |
 | created_at | | |
 
-Partial UNIQUE `(booking_id, type, channel) WHERE booking_id IS NOT NULL`: jobs can run repeatedly without double-sending. A Telegram notification for a user with no live `telegram_accounts` row is marked `SKIPPED`.
+Partial UNIQUE `(booking_id, type, channel) WHERE booking_id IS NOT NULL AND type IN (BOOKING_CONFIRMED, BOOKING_CANCELLED, LATE_CHECKIN, CHECKOUT_REMINDER, BOOKING_EXPIRED, FORGOTTEN_CHECKOUT)`: jobs can run repeatedly without double-sending. Change alerts (`BOOKING_MODIFIED`, `BOOKING_EXTENDED`, `CHECKED_IN`, `CHECKED_OUT`) get one row per change, so they are not covered. A Telegram notification for a user with no live `telegram_accounts` row is marked `SKIPPED`.
 
 Channel rule: `EMAIL` only for `EMAIL_VERIFY_OTP` / `PASSWORD_RESET_OTP`; booking types go to `TELEGRAM`.
 
@@ -560,7 +560,7 @@ UNIQUE `(source, message_id)`: insert first; on conflict the message was already
 | booking_event_type | `CREATED`, `MODIFIED`, `EXTENDED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`, `EXPIRED`, `OVERDUE`, `OVERDUE_RESOLVED` |
 | qr_purpose | `CHECK_IN`, `CHECK_OUT` |
 | notification_channel | `EMAIL`, `TELEGRAM` |
-| notification_type | `EMAIL_VERIFY_OTP`, `PASSWORD_RESET_OTP`, `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`, `LATE_CHECKIN`, `CHECKOUT_REMINDER`, `BOOKING_EXPIRED`, `FORGOTTEN_CHECKOUT` |
+| notification_type | `EMAIL_VERIFY_OTP`, `PASSWORD_RESET_OTP`, `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`, `LATE_CHECKIN`, `CHECKOUT_REMINDER`, `BOOKING_EXPIRED`, `FORGOTTEN_CHECKOUT`, `BOOKING_MODIFIED`, `BOOKING_EXTENDED`, `CHECKED_IN`, `CHECKED_OUT` |
 | notification_status | `PENDING`, `SENT`, `FAILED`, `SKIPPED` |
 
 ### Booking status flow
