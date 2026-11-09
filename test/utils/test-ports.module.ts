@@ -29,7 +29,9 @@ export function testPlaceRules(ds: DataSource): PlaceRulesPort {
     async getBookingContext(placeId, manager?: EntityManager) {
       const m = manager ?? ds.manager;
       const place = await m.getRepository(Place).findOneBy({ id: placeId });
-      const policy = await m.getRepository(BookingPolicy).findOneBy({ placeId });
+      const policy = await m
+        .getRepository(BookingPolicy)
+        .findOneBy({ placeId });
       if (!place || !policy) throw new NotFoundException('Place not found');
       return { placeId, name: place.name, timezone: place.timezone, policy };
     },
@@ -39,14 +41,19 @@ export function testPlaceRules(ds: DataSource): PlaceRulesPort {
 
 const noShowCounter: NoShowCounterPort = {
   async incrementNoShow(manager, userId) {
-    await manager.query('UPDATE users SET no_show_count = no_show_count + 1 WHERE id = $1', [userId]);
+    await manager.query(
+      'UPDATE users SET no_show_count = no_show_count + 1 WHERE id = $1',
+      [userId],
+    );
   },
 };
 
 const outbox: OutboxPort = {
   async add(manager, event) {
     // QueryDeepPartialEntity can't express a free-form jsonb Record; the fields match the entity.
-    await manager.getRepository(OutboxEvent).insert(event as QueryDeepPartialEntity<OutboxEvent>);
+    await manager
+      .getRepository(OutboxEvent)
+      .insert(event as QueryDeepPartialEntity<OutboxEvent>);
   },
 };
 
@@ -55,7 +62,10 @@ const outbox: OutboxPort = {
   providers: [
     { provide: NO_SHOW_COUNTER, useValue: noShowCounter },
     { provide: OUTBOX, useValue: outbox },
-    { provide: TELEGRAM_LINK_CODES, useValue: { issue: jest.fn(), consume: jest.fn() } },
+    {
+      provide: TELEGRAM_LINK_CODES,
+      useValue: { issue: jest.fn(), consume: jest.fn() },
+    },
     { provide: INBOX, useValue: { handleOnce: jest.fn() } },
   ],
   exports: [NO_SHOW_COUNTER, OUTBOX, TELEGRAM_LINK_CODES, INBOX],

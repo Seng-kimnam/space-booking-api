@@ -29,7 +29,7 @@ import {
 import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/role.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { UserRole } from '../users/entities/user.entity';
+import { UserRole } from '../common/enums';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { RoleIdParamDto, RoleQueryDto } from './dto/role-query.dto';
 import { RolePageResponseDto, RoleResponseDto } from './dto/role-response.dto';

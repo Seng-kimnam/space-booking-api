@@ -1,4 +1,5 @@
 import { appConfig } from './app.config';
+import { authConfig } from './auth.config';
 import { bookingConfig } from './booking.config';
 import { databaseConfig } from './database.config';
 import { loggerConfig } from './logger.config';
@@ -8,6 +9,7 @@ import { telegramConfig } from './telegram.config';
 
 export {
   appConfig,
+  authConfig,
   bookingConfig,
   databaseConfig,
   loggerConfig,
@@ -16,9 +18,11 @@ export {
   telegramConfig,
 };
 export { isSwaggerEnabled, setupSwagger, SWAGGER_PATH } from './swagger.config';
+export { validateEnv } from './env.validation';
 
 export const configurations = [
   appConfig,
+  authConfig,
   databaseConfig,
   redisConfig,
   mailConfig,

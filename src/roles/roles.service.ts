@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
-import { UserRole } from '../users/entities/user.entity';
+import { UserRole } from '../common/enums';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { RoleQueryDto } from './dto/role-query.dto';
 import { RolePageResponseDto, RoleResponseDto } from './dto/role-response.dto';

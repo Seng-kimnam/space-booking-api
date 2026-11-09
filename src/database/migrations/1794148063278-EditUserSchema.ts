@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from "typeorm";
 export class EditUserSchema1794148063278 implements MigrationInterface {
     name = 'EditUserSchema1794148063278'
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
+    public async up(_queryRunner: QueryRunner): Promise<void> {
         // The initial schema migration now upgrades an existing users table and
         // creates the remaining schema, so this generated duplicate is retained
         // only for migration-history compatibility.
@@ -90,7 +90,7 @@ export class EditUserSchema1794148063278 implements MigrationInterface {
         */
     }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
+    public async down(_queryRunner: QueryRunner): Promise<void> {
         return;
         /*
         await queryRunner.query(`ALTER TABLE "user_otps" DROP CONSTRAINT "user_otps_user_id_fkey"`);
