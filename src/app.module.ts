@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { configurations, databaseConfig } from './configuration';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
+import { PlacesModule } from './places/places.module';
 import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 
@@ -18,6 +19,7 @@ import { AppController } from './app.controller';
     UsersModule,
     RolesModule,
     AuthModule,
+    PlacesModule,
     SeatsModule,
   ],
   controllers: [AppController],
