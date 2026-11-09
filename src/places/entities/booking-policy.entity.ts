@@ -22,6 +22,11 @@ import { Place } from './place.entity';
 @Check('booking_policies_active_chk', 'max_active_per_user >= 1')
 @Check('booking_policies_extensions_chk', 'max_extensions >= 0')
 @Check('booking_policies_modify_cutoff_chk', 'modify_cutoff_minutes >= 0')
+// The late alert must fire before the booking expires.
+@Check(
+  'booking_policies_late_alert_chk',
+  'late_checkin_alert_minutes >= 0 AND late_checkin_alert_minutes <= checkin_grace_minutes',
+)
 export class BookingPolicy {
   @PrimaryColumn({
     name: 'place_id',
@@ -39,6 +44,10 @@ export class BookingPolicy {
 
   @Column({ name: 'checkin_grace_minutes', type: 'smallint', default: 15 })
   checkinGraceMinutes: number;
+
+  // "You are late" Telegram alert at start + N, before expiry at start + grace.
+  @Column({ name: 'late_checkin_alert_minutes', type: 'smallint', default: 5 })
+  lateCheckinAlertMinutes: number;
 
   @Column({ name: 'checkout_reminder_minutes', type: 'smallint', default: 15 })
   checkoutReminderMinutes: number;

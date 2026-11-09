@@ -118,6 +118,7 @@ erDiagram
     BOOKING_POLICIES {
         uuid place_id PK,FK
         smallint checkin_grace_minutes "15"
+        smallint late_checkin_alert_minutes "5"
         smallint checkout_reminder_minutes "15"
         smallint overdue_alert_minutes "15"
         smallint min_minutes
@@ -156,6 +157,7 @@ erDiagram
         uuid seat_id FK
         uuid user_id FK
         uuid client_id FK "NULL unless via api client"
+        uuid group_id "shared by one multi-seat request"
         booking_source source "APP | API_CLIENT | ADMIN"
         tstzrange time_range "[) bounds"
         booking_status status
@@ -379,6 +381,7 @@ One row per place, created with the place. Replaces hardcoded "15 minutes".
 |---|---|---|---|
 | place_id | uuid | | PK, FK -> places.id ON DELETE CASCADE |
 | checkin_grace_minutes | smallint | 15 | `>= 0`; after start + grace, PENDING → EXPIRED |
+| late_checkin_alert_minutes | smallint | 5 | `>= 0` and `<= checkin_grace_minutes`; "you are late" Telegram alert at start + N |
 | checkout_reminder_minutes | smallint | 15 | `>= 0`; reminder at end − N |
 | overdue_alert_minutes | smallint | 15 | `>= 0`; forgotten-checkout alert at end + N |
 | min_minutes | smallint | 30 | `>= 1` |
@@ -420,6 +423,7 @@ Partial UNIQUE `(place_id, label) WHERE deleted_at IS NULL`.
 | seat_id | uuid | NOT NULL, FK -> seats.id ON DELETE RESTRICT |
 | user_id | uuid | NOT NULL, FK -> users.id ON DELETE RESTRICT |
 | client_id | uuid | NULL, FK -> api_clients.id; set when created by an integrating app |
+| group_id | uuid | NULL (no FK, no groups table); same value for every booking created by one multi-seat `POST /bookings` (a single seat is a group of one). Used for the shared group QR and to send one Telegram message per group |
 | source | booking_source | NOT NULL, default `APP` |
 | time_range | tstzrange | NOT NULL |
 | status | booking_status | NOT NULL, default `PENDING` |
@@ -438,7 +442,7 @@ Partial UNIQUE `(place_id, label) WHERE deleted_at IS NULL`.
 | version | int | NOT NULL, default 1 (TypeORM `@VersionColumn`, optimistic lock for modify/extend) |
 | created_at, updated_at | | |
 
-Partial UNIQUE `(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL`: a retried `POST /bookings` returns the original booking instead of a 409.
+Partial UNIQUE `(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL`: a retried `POST /bookings` returns the original booking instead of a 409. For a multi-seat request the key is stored on the first booking of the group only; a replay returns the whole group.
 
 ### booking_events
 Append-only history. Needed because modify/extend overwrite `time_range`.
@@ -498,7 +502,7 @@ Linking flow: `POST /telegram/link` creates a `TELEGRAM_LINK` row in `user_otps`
 | payload | jsonb | NOT NULL, default `'{}'`; **never contains OTP codes or tokens** |
 | created_at | | |
 
-Partial UNIQUE `(booking_id, type, channel) WHERE booking_id IS NOT NULL`: jobs can run repeatedly without double-sending. A Telegram notification for a user with no live `telegram_accounts` row is marked `SKIPPED`.
+Partial UNIQUE `(booking_id, type, channel) WHERE booking_id IS NOT NULL AND type IN (BOOKING_CONFIRMED, BOOKING_CANCELLED, LATE_CHECKIN, CHECKOUT_REMINDER, BOOKING_EXPIRED, FORGOTTEN_CHECKOUT)`: jobs can run repeatedly without double-sending. Change alerts (`BOOKING_MODIFIED`, `BOOKING_EXTENDED`, `CHECKED_IN`, `CHECKED_OUT`) get one row per change, so they are not covered. A Telegram notification for a user with no live `telegram_accounts` row is marked `SKIPPED`.
 
 Channel rule: `EMAIL` only for `EMAIL_VERIFY_OTP` / `PASSWORD_RESET_OTP`; booking types go to `TELEGRAM`.
 
@@ -556,7 +560,7 @@ UNIQUE `(source, message_id)`: insert first; on conflict the message was already
 | booking_event_type | `CREATED`, `MODIFIED`, `EXTENDED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`, `EXPIRED`, `OVERDUE`, `OVERDUE_RESOLVED` |
 | qr_purpose | `CHECK_IN`, `CHECK_OUT` |
 | notification_channel | `EMAIL`, `TELEGRAM` |
-| notification_type | `EMAIL_VERIFY_OTP`, `PASSWORD_RESET_OTP`, `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`, `LATE_CHECKIN`, `CHECKOUT_REMINDER`, `BOOKING_EXPIRED`, `FORGOTTEN_CHECKOUT` |
+| notification_type | `EMAIL_VERIFY_OTP`, `PASSWORD_RESET_OTP`, `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`, `LATE_CHECKIN`, `CHECKOUT_REMINDER`, `BOOKING_EXPIRED`, `FORGOTTEN_CHECKOUT`, `BOOKING_MODIFIED`, `BOOKING_EXTENDED`, `CHECKED_IN`, `CHECKED_OUT` |
 | notification_status | `PENDING`, `SENT`, `FAILED`, `SKIPPED` |
 
 ### Booking status flow
@@ -633,6 +637,7 @@ The exclusion violation surfaces as Postgres error `23P01`; the bookings service
 | `bookings (user_id, created_at DESC)` | My bookings / upcoming / history |
 | `bookings (status, lower(time_range))`, `bookings (status, upper(time_range))` | Expire job (by start), overdue / reminder jobs (by end); admin active/overdue lists |
 | `bookings (client_id)` | Bookings per integrating app |
+| `bookings (group_id) WHERE group_id IS NOT NULL` | Seats of one multi-seat booking (group QR, group messages) |
 | `booking_events (booking_id, created_at)` | Booking timeline |
 | `booking_qr_tokens (booking_id)` | Revoke previous QR |
 | `seats (place_id, area_id)` | Seats per place / area |
@@ -654,10 +659,10 @@ The exclusion violation surfaces as Postgres error `23P01`; the bookings service
 
 ## 8. Business rules tied to the schema
 
-1. **Create** runs in one transaction: insert `bookings`, `booking_events (CREATED)`, `notifications` (`BOOKING_CONFIRMED`, `LATE_CHECKIN` at start (skipped if already checked in; expiry follows at start + grace), `CHECKOUT_REMINDER` at end − N), and `outbox_events (booking.created)`. Limits come from `booking_policies` (duration, slot alignment, advance days, active count).
+1. **Create** runs in one transaction: insert `bookings` (one row per seat, all sharing a `group_id`; all-or-nothing), `booking_events (CREATED)`, `notifications` (`BOOKING_CONFIRMED`, `LATE_CHECKIN` at start + `late_checkin_alert_minutes` (skipped if already checked in; expiry follows at start + grace), `CHECKOUT_REMINDER` at end − N), and `outbox_events (booking.created)`. Limits come from `booking_policies` (duration, slot alignment, advance days, active count).
 2. **Modify / extend** update `time_range` in a transaction with a `booking_events` row (old/new range), rescheduled notifications and an outbox event. The exclusion constraint rejects overlaps; `version` rejects concurrent edits. Extend increments `extension_count` (max from policy). Modify is only allowed while `PENDING` and before `start − modify_cutoff_minutes`.
 3. **Expire job:** `PENDING` with `lower(time_range) + checkin_grace_minutes < now()` → `EXPIRED`, set `expired_at`, increment `users.no_show_count`, revoke live QR tokens, `BOOKING_EXPIRED` notification, outbox `booking.expired`. Seat is freed by the constraint's `WHERE`.
-4. **Overdue job:** `CHECKED_IN` with `upper(time_range) < now()` → `CHECKOUT_OVERDUE`, `FORGOTTEN_CHECKOUT` notification at end + `overdue_alert_minutes`. Because the range has ended, a following booking may start at that time; availability and occupancy treat the seat as occupied *now* until an admin resolves it (`OVERDUE_RESOLVED` → `COMPLETED`).
+4. **Overdue job:** `CHECKED_IN` with `upper(time_range) + overdue_alert_minutes <= now()` → `CHECKOUT_OVERDUE`, with a `FORGOTTEN_CHECKOUT` notification sent at that moment (e.g. booking 10:00–11:00, not checked out by 11:15). Between end and end + N the user can still check out normally. Because the range has ended, a following booking may start at that time; availability and occupancy treat the seat as occupied *now* until an admin resolves it (`OVERDUE_RESOLVED` → `COMPLETED`).
 5. **QR check-in/out:** token valid only if `used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`; mark `used_at` in the same transaction as the status change. Check-in is accepted only within the window set in code (up to start + grace).
 6. **Cancel** sets `status = CANCELLED`, `cancelled_at`, `cancelled_by`; rows are never deleted. Pending notifications for the booking become `SKIPPED`.
 7. **Times** are `timestamptz` in UTC; opening hours and closures are evaluated in `places.timezone`; bookings in the past are rejected.

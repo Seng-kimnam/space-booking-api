@@ -5,7 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  EntityManager,
+  QueryFailedError,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { Seat } from '../entities/seat.entity';
 import { PlaceSeatQueryDto, SeatQueryDto } from '../dto/seat-query.dto';
 import { SeatStatus } from '../../common/enums';
@@ -60,6 +65,27 @@ export class SeatsService {
       .getOne();
     if (!seat) throw new NotFoundException('Seat not found');
     return seat;
+  }
+
+  /**
+   * Bookable seats among `seatIds`: ACTIVE, not deleted, in an active place.
+   * Unknown or unbookable ids are left out. Used by bookings (SEAT_LOOKUP port);
+   * pass the caller's `manager` so the read joins its transaction.
+   */
+  async findBookable(
+    seatIds: string[],
+    manager?: EntityManager,
+  ): Promise<{ id: string; placeId: string; label: string }[]> {
+    if (seatIds.length === 0) return [];
+    const rows = await (manager ?? this.seats.manager)
+      .getRepository(Seat)
+      .createQueryBuilder('seat')
+      .select(['seat.id', 'seat.placeId', 'seat.label'])
+      .where(PLACE_VISIBLE)
+      .andWhere('seat.id IN (:...seatIds)', { seatIds })
+      .andWhere('seat.status = :status', { status: SeatStatus.ACTIVE })
+      .getMany();
+    return rows.map((s) => ({ id: s.id, placeId: s.placeId, label: s.label }));
   }
 
   async create(placeId: string, dto: CreateSeatDto): Promise<Seat> {

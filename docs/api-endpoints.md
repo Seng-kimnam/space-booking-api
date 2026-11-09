@@ -105,14 +105,14 @@ Notes (seats):
 ## 4. Bookings
 | # | Method | Endpoint | Description | Access |
 |---|---|---|---|---|
-| 1 | POST | /bookings | Reserve a seat (`Idempotency-Key` header supported) | USER, Client `bookings:write` |
+| 1 | POST | /bookings | Reserve one or more seats: body `{ seatIds[], startAt, endAt }`, same place and time, all-or-nothing (`Idempotency-Key` header supported) | USER, Client `bookings:write` |
 | 2 | GET | /bookings | My bookings | USER |
 | 3 | GET | /bookings/upcoming | My upcoming bookings | USER |
 | 4 | GET | /bookings/history | My booking history | USER |
 | 5 | GET | /bookings/:bookingId | Booking details | USER (own), Client `bookings:read` |
-| 6 | PATCH | /bookings/:bookingId | Modify date/time | USER (own) |
-| 7 | POST | /bookings/:bookingId/cancel | Cancel booking | USER (own), Client `bookings:write` |
-| 8 | POST | /bookings/:bookingId/extend | Extend booking | USER (own) |
+| 6 | PATCH | /bookings/:bookingId | Modify date/time (`?scope=group` for every seat of the booking) | USER (own) |
+| 7 | POST | /bookings/:bookingId/cancel | Cancel booking (`?scope=group` supported) | USER (own), Client `bookings:write` |
+| 8 | POST | /bookings/:bookingId/extend | Extend booking (`?scope=group` supported) | USER (own) |
 | 9 | GET | /admin/bookings | All bookings | ADMIN |
 | 10 | GET | /admin/bookings/:bookingId | Any booking (+ event history) | ADMIN |
 | 11 | PATCH | /admin/bookings/:bookingId/status | Cancel or resolve overdue | ADMIN |
@@ -120,7 +120,7 @@ Notes (seats):
 ## 5. QR check-in / check-out
 | # | Method | Endpoint | Description | Access |
 |---|---|---|---|---|
-| 1 | GET | /bookings/:bookingId/qr-code | Issue one-time QR (revokes previous) | USER (own) |
+| 1 | GET | /bookings/:bookingId/qr-code | Issue one-time QR (revokes previous). `?purpose=CHECK_IN\|CHECK_OUT&mode=GROUP\|EACH`: for a multi-seat booking, GROUP = one QR for all seats, EACH = one QR per seat | USER (own) |
 | 2 | POST | /check-in/scan | Scan QR and check in | USER, ADMIN |
 | 3 | POST | /check-out/scan | Scan QR and check out | USER, ADMIN |
 | 4 | GET | /bookings/:bookingId/check-in-status | Attendance status | USER (own), ADMIN |
@@ -134,6 +134,17 @@ Notes (seats):
 | 2 | GET | /telegram/status | Connection status | USER |
 | 3 | DELETE | /telegram/unlink | Disconnect | USER |
 | 4 | POST | /webhooks/telegram | Receive Telegram updates | Telegram |
+
+**Subscribing:** `POST /telegram/link` returns `{ url: https://t.me/<bot>?start=<code>, expiresAt }` (one-time code, `TELEGRAM_LINK_TTL_MINUTES`). One Telegram chat per user and one user per chat. Users can unsubscribe in the app (`DELETE /telegram/unlink`) or from Telegram itself, which is why the webhook exists:
+
+| Update | Effect |
+|---|---|
+| `/start <code>` | Links the chat to the code's user |
+| `/stop`, `/unsubscribe` | Unlinks the chat |
+| `/status` | Replies whether the chat is linked |
+| `my_chat_member` with status `kicked` / `left` (user blocked the bot) | Unlinks silently |
+
+The webhook checks the `X-Telegram-Bot-Api-Secret-Token` header, records every `update_id` in `inbox_events` (processed once) and always answers 200.
 
 ## 7. Admin monitoring
 | # | Method | Endpoint | Description | Access |
@@ -171,7 +182,7 @@ Published to topic exchange `space-booking.events` from `outbox_events`. Payload
 
 | Job | What it does |
 |---|---|
-| Expire bookings | PENDING not checked in by start + grace → EXPIRED; seat released |
-| Detect overdue checkouts | CHECKED_IN past end → CHECKOUT_OVERDUE |
-| Notification sender | Sends due `notifications` (Telegram / email), retries failures |
+| Expire bookings (every minute) | PENDING not checked in by start + `checkin_grace_minutes` (15) → EXPIRED, `no_show_count + 1` (once per multi-seat booking), QR revoked, `BOOKING_EXPIRED` alert; seat released |
+| Detect overdue checkouts (every minute) | CHECKED_IN not checked out by end + `overdue_alert_minutes` (booking 10:00-11:00 → 11:15) → CHECKOUT_OVERDUE + `FORGOTTEN_CHECKOUT` alert |
+| Notification sender | Sends due `notifications` (Telegram / email), retries failures (every 30 s). Booking alert timeline: `BOOKING_CONFIRMED` on create, `LATE_CHECKIN` at start + `late_checkin_alert_minutes` (5, skipped once checked in), expiry at start + 15, `CHECKOUT_REMINDER` at end − 15, `FORGOTTEN_CHECKOUT` at end + 15. Sent right away on every change: `BOOKING_MODIFIED` (old and new time; old QR codes are revoked), `BOOKING_EXTENDED`, `BOOKING_CANCELLED` (user or admin), `CHECKED_IN` / `CHECKED_OUT` (QR or admin manual). One message per multi-seat booking |
 | Outbox relay | Publishes unpublished `outbox_events` to RabbitMQ |

@@ -104,6 +104,13 @@ export class PlacesService {
     return place;
   }
 
+  /** Non-deleted place, active or not, for admin writes in other modules (e.g. areas). */
+  async getPlace(placeId: string): Promise<Place> {
+    const place = await this.places.findOneBy({ id: placeId });
+    if (!place) throw new NotFoundException('Place not found');
+    return place;
+  }
+
   async create(dto: CreatePlaceDto): Promise<PlaceDetailResponseDto> {
     const placeId = await this.transaction(async (m) => {
       const place = await m.save(

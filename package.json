@@ -26,7 +26,9 @@
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "migration:show": "npm run typeorm -- migration:show"
+    "migration:show": "npm run typeorm -- migration:show",
+    "seed": "ts-node src/database/seeds/run-seeds.ts",
+    "telegram:poll": "ts-node scripts/telegram-dev-poller.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",
@@ -52,6 +54,7 @@
     "ioredis": "^5.11.1",
     "passport-jwt": "^4.0.1",
     "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^1.1.2"
@@ -66,6 +69,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
     "@types/passport-jwt": "^4.0.1",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.0.0",
     "jest": "^30.0.0",
     "oxlint": "^1.58.0",

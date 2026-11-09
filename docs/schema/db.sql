@@ -42,7 +42,10 @@ CREATE TYPE notification_channel AS ENUM ('EMAIL', 'TELEGRAM');
 CREATE TYPE notification_type    AS ENUM ('EMAIL_VERIFY_OTP', 'PASSWORD_RESET_OTP',
                                           'BOOKING_CONFIRMED', 'BOOKING_CANCELLED',
                                           'LATE_CHECKIN', 'CHECKOUT_REMINDER',
-                                          'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT');
+                                          'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT',
+                                          -- one per change, not once per booking:
+                                          'BOOKING_MODIFIED', 'BOOKING_EXTENDED',
+                                          'CHECKED_IN', 'CHECKED_OUT');
 CREATE TYPE notification_status  AS ENUM ('PENDING', 'SENT', 'FAILED', 'SKIPPED');
 
 -- -----------------------------------------------------------------------------
@@ -168,6 +171,7 @@ CREATE TABLE place_closures (
 CREATE TABLE booking_policies (
   place_id                   uuid        PRIMARY KEY REFERENCES places (id) ON DELETE CASCADE,
   checkin_grace_minutes      smallint    NOT NULL DEFAULT 15,
+  late_checkin_alert_minutes smallint    NOT NULL DEFAULT 5,   -- "you are late" alert at start + N
   checkout_reminder_minutes  smallint    NOT NULL DEFAULT 15,
   overdue_alert_minutes      smallint    NOT NULL DEFAULT 15,
   min_minutes                smallint    NOT NULL DEFAULT 30,
@@ -187,7 +191,9 @@ CREATE TABLE booking_policies (
   CONSTRAINT booking_policies_advance_chk        CHECK (max_advance_days >= 0),
   CONSTRAINT booking_policies_active_chk         CHECK (max_active_per_user >= 1),
   CONSTRAINT booking_policies_extensions_chk     CHECK (max_extensions >= 0),
-  CONSTRAINT booking_policies_modify_cutoff_chk  CHECK (modify_cutoff_minutes >= 0)
+  CONSTRAINT booking_policies_modify_cutoff_chk  CHECK (modify_cutoff_minutes >= 0),
+  CONSTRAINT booking_policies_late_alert_chk     CHECK (late_checkin_alert_minutes >= 0
+                                                        AND late_checkin_alert_minutes <= checkin_grace_minutes)
 );
 
 CREATE TABLE areas (
@@ -247,7 +253,8 @@ CREATE TABLE bookings (
   seat_id           uuid              NOT NULL REFERENCES seats (id)       ON DELETE RESTRICT,
   user_id           uuid              NOT NULL REFERENCES users (id)       ON DELETE RESTRICT,
   client_id         uuid              REFERENCES api_clients (id)          ON DELETE RESTRICT,
-  source            booking_source    NOT NULL DEFAULT 'APP',
+  group_id          uuid,                                -- shared by the seats of one multi-seat request
+  source           booking_source    NOT NULL DEFAULT 'APP',
   time_range        tstzrange         NOT NULL,          -- [start, end)
   status            booking_status    NOT NULL DEFAULT 'PENDING',
   checked_in_at     timestamptz,
@@ -366,9 +373,13 @@ CREATE TABLE notifications (
   CONSTRAINT notifications_sent_consistent CHECK ((status = 'SENT') = (sent_at IS NOT NULL)),
   CONSTRAINT notifications_attempts_chk    CHECK (attempts >= 0)
 );
--- Jobs can run repeatedly without double-sending.
+-- Jobs can run repeatedly without double-sending. Only alerts that happen once
+-- per booking; modify/extend/check-in/check-out alerts get a row per change.
 CREATE UNIQUE INDEX notifications_booking_type_channel_uk
-  ON notifications (booking_id, type, channel) WHERE booking_id IS NOT NULL;
+  ON notifications (booking_id, type, channel)
+  WHERE booking_id IS NOT NULL
+    AND type IN ('BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'LATE_CHECKIN',
+                 'CHECKOUT_REMINDER', 'BOOKING_EXPIRED', 'FORGOTTEN_CHECKOUT');
 
 -- =============================================================================
 -- Integration: outbox (we publish) and inbox (we consume)
@@ -411,6 +422,7 @@ CREATE INDEX bookings_user_created_idx        ON bookings (user_id, created_at D
 CREATE INDEX bookings_status_start_idx        ON bookings (status, lower(time_range));
 CREATE INDEX bookings_status_end_idx          ON bookings (status, upper(time_range));
 CREATE INDEX bookings_client_idx              ON bookings (client_id) WHERE client_id IS NOT NULL;
+CREATE INDEX bookings_group_idx               ON bookings (group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX booking_events_booking_idx       ON booking_events (booking_id, created_at);
 CREATE INDEX booking_qr_tokens_booking_idx    ON booking_qr_tokens (booking_id);
 CREATE INDEX seats_place_area_idx             ON seats (place_id, area_id);

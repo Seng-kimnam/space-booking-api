@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 
 // Raw SQL on purpose (AGENTS.md section 7: tstzrange logic). Postgres does the
@@ -47,14 +47,17 @@ export class OpeningHoursService {
    * True when the place is active, not deleted, and open for the whole
    * half-open range [start, end), evaluated in the place's timezone.
    * Used by bookings to reject reservations outside opening hours (AGENTS.md 6.6).
+   * Pass the caller's `manager` so the read joins its transaction.
    */
   async isOpenForRange(
     placeId: string,
     start: Date,
     end: Date,
+    manager?: EntityManager,
   ): Promise<boolean> {
     if (!(start.getTime() < end.getTime())) return false;
-    const [row] = (await this.hours.query(IS_OPEN_SQL, [
+    const runner = manager ?? this.hours;
+    const [row] = (await runner.query(IS_OPEN_SQL, [
       placeId,
       start.toISOString(),
       end.toISOString(),
