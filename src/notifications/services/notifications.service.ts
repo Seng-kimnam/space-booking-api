@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { NotificationChannel, NotificationType } from '../../common/enums';
 import { NotificationsRepository } from '../repositories/notifications.repository';
@@ -24,6 +24,11 @@ const EMAIL_TYPES = new Set<NotificationType>([
  */
 @Injectable()
 export class NotificationsService {
+  // debug: one line per booking change would be noisy at log level. These run
+  // on the caller's transaction, so "queued" = written if that change commits;
+  // the dispatcher logs actual delivery. Ids and types only, never payloads.
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly repository: NotificationsRepository) {}
 
   /** Channel rule (docs/erd.md): EMAIL for auth OTPs only, booking alerts on TELEGRAM. */
@@ -41,6 +46,13 @@ export class NotificationsService {
     manager: EntityManager,
     alerts: ScheduleBookingAlert[],
   ): Promise<void> {
+    if (alerts.length > 0) {
+      const bookings = [...new Set(alerts.map((a) => a.bookingId))].join(',');
+      const summary = alerts
+        .map((a) => `${a.type}@${a.scheduledAt.toISOString()}`)
+        .join(', ');
+      this.logger.debug(`Alerts queued: bookings=${bookings} ${summary}`);
+    }
     return this.repository.insertIgnoringDuplicates(
       manager,
       alerts.map((a) => ({
@@ -63,6 +75,11 @@ export class NotificationsService {
     /** New times for the message (e.g. startAt/endAt after a modify). */
     payloadPatch?: Partial<BookingAlertPayload>,
   ): Promise<void> {
+    if (bookingIds.length > 0) {
+      this.logger.debug(
+        `Alert rescheduled: ${type} -> ${scheduledAt.toISOString()} bookings=${bookingIds.join(',')}`,
+      );
+    }
     return this.repository.reschedulePending(
       manager,
       bookingIds,
@@ -78,6 +95,11 @@ export class NotificationsService {
     bookingIds: string[],
     types?: NotificationType[],
   ): Promise<void> {
+    if (bookingIds.length > 0) {
+      this.logger.debug(
+        `Pending alerts skipped: types=${types?.join('|') ?? 'all'} bookings=${bookingIds.join(',')}`,
+      );
+    }
     return this.repository.skipPending(manager, bookingIds, types);
   }
 }
