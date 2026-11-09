@@ -35,7 +35,7 @@ import { UpdatePlaceDto } from '../dto/update-place.dto';
 import { PlaceDetailResponseDto } from '../dto/place.response.dto';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
-@ApiTags('admin-places')
+@ApiTags('Places')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()
