@@ -102,7 +102,7 @@ export class AuthController {
     return this.authService.logout(dto.refreshToken);
   }
 
-  @Post('admin/register')
+  @Post('register-admin')
   registerAdmin(@Body() dto: RegisterDto) {
     return this.authService.createAdminUser(dto.email, dto.password, dto.name);
   }
