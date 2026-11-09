@@ -20,11 +20,13 @@ export class User {
 
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
-  
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
+  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
   @Exclude()
-  passwordHash: string;
+  passwordHash: string | null;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
 
   // Password-reset codes live in user_otps (purpose PASSWORD_RESET), not on users
   // (AGENTS.md section 5, docs/erd.md).

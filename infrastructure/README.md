@@ -27,7 +27,7 @@ Variables used by compose: `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`,
 `REDIS_PORT`, `MAIL_PORT`, `MAILPIT_UI_PORT`,
 `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_PORT`, `LOKI_PORT`, `LOKI_RETENTION_PERIOD`, `ALLOY_PORT`.
 
-Since the API runs on the host, use `DB_HOST=localhost`, `REDIS_HOST=localhost` and `MAIL_HOST=localhost` in `.env`.
+Since the API runs on the host, use `DB_HOST=localhost`, `REDIS_HOST=localhost` and `MAIL_HOST=127.0.0.1` in `.env`.
 
 ## Commands (from the repo root)
 

@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigType } from '@nestjs/config';
 import { AppModule } from './app.module';
@@ -18,6 +18,9 @@ async function bootstrap() {
   const logging = app.get<ConfigType<typeof loggerConfig>>(loggerConfig.KEY);
 
   app.useLogger(new AppLogger({ json: logging.json, file: logging.file }));
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+  );
 
   app.setGlobalPrefix(config.globalPrefix);
 
