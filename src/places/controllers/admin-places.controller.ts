@@ -15,6 +15,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNoContentResponse,
@@ -28,10 +29,10 @@ import { AuthGuard } from '../../auth/auth.guard';
 import { Roles } from '../../auth/role.decorator';
 import { RolesInterceptor } from '../../auth/roles.interceptor';
 import { UserRole } from '../../users/entities/user.entity';
-import { CreatePlaceDto } from '../dto/create-place.dto';
-import { PlaceDetailResponseDto } from '../dto/place.response.dto';
-import { UpdatePlaceDto } from '../dto/update-place.dto';
 import { PlacesService } from '../services/places.service';
+import { CreatePlaceDto } from '../dto/create-place.dto';
+import { UpdatePlaceDto } from '../dto/update-place.dto';
+import { PlaceDetailResponseDto } from '../dto/place.response.dto';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
 @ApiTags('admin-places')
@@ -54,8 +55,7 @@ export class AdminPlacesController {
 
   @Post()
   @ApiOperation({
-    summary:
-      'Create a place with its booking policy (and optional hours, closures)',
+    summary: 'Create a place (+ booking policy, opening hours, closures)',
   })
   @ApiCreatedResponse({ type: PlaceDetailResponseDto })
   @ApiBadRequestResponse()
@@ -65,12 +65,14 @@ export class AdminPlacesController {
 
   @Patch(':placeId')
   @ApiOperation({
-    summary:
-      'Update a place. openingHours / closures replace the whole list when sent; policy changes only the fields sent',
+    summary: 'Update place, opening hours, closures and/or policy',
+    description:
+      'openingHours and closures, when sent, replace the whole set. bookingPolicy is merged.',
   })
   @ApiOkResponse({ type: PlaceDetailResponseDto })
   @ApiBadRequestResponse()
   @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'Concurrent change, retry' })
   update(
     @Param('placeId', ParseUUIDPipe) placeId: string,
     @Body() dto: UpdatePlaceDto,

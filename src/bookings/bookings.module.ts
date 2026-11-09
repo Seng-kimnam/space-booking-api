@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PlacesModule } from '../places/places.module';
-import { PlacesService } from '../places/services/places.service';
+import { PlaceRulesService } from '../places/services/place-rules.service';
 import { SeatsModule } from '../seats/seats.module';
 import { SeatsService } from '../seats/services/seats.service';
 import { PLACE_RULES, SEAT_LOOKUP } from './bookings.ports';
@@ -22,7 +22,7 @@ import { BookingRulesService } from './services/booking-rules.service';
 import { BookingsService } from './services/bookings.service';
 
 /**
- * SEAT_LOOKUP is the real SeatsService and PLACE_RULES the real PlacesService.
+ * SEAT_LOOKUP is the real SeatsService and PLACE_RULES the real PlaceRulesService.
  * NO_SHOW_COUNTER and OUTBOX still come from InterimPortsModule until users and messaging merge
  * (see bookings.ports.ts). GET /seats/available and /seats/:id/availability
  * (seat-availability.controller) are still to do.
@@ -38,7 +38,7 @@ import { BookingsService } from './services/bookings.service';
   controllers: [BookingsController, AttendanceController, AdminBookingsController],
   providers: [
     { provide: SEAT_LOOKUP, useExisting: SeatsService },
-    { provide: PLACE_RULES, useExisting: PlacesService },
+    { provide: PLACE_RULES, useExisting: PlaceRulesService },
     BookingsRepository,
     BookingRulesService,
     BookingActivityService,

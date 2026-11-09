@@ -7,11 +7,11 @@ import { AreasService } from './services/areas.service';
 
 const places = (found: boolean) =>
   ({
-    findForAdmin: async () => {
+    getPlace: async () => {
       if (!found) throw new NotFoundException('Place not found');
       return {};
     },
-    findVisible: async () => {
+    getActivePlace: async () => {
       if (!found) throw new NotFoundException('Place not found');
       return {};
     },

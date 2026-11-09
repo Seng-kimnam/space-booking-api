@@ -30,7 +30,7 @@ export class AreasService {
     placeId: string,
     query: PaginationQueryDto,
   ): Promise<AreaPageResponseDto> {
-    await this.places.findVisible(placeId);
+    await this.places.getActivePlace(placeId);
     const [rows, total] = await this.areas.findAndCount({
       where: { placeId, isActive: true },
       order: { name: 'ASC', id: 'ASC' },
@@ -47,7 +47,7 @@ export class AreasService {
 
   /** Admins may add areas to inactive places, not to deleted ones. */
   async create(placeId: string, dto: CreateAreaDto): Promise<Area> {
-    await this.places.findForAdmin(placeId);
+    await this.places.getPlace(placeId);
     return this.save(
       this.areas.create({
         placeId,

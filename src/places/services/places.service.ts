@@ -1,57 +1,83 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
-import type { TimeRange } from '../../database/transformers/tstzrange.transformer';
-import { isPgError } from '../../common/utils/db-errors';
+import { InjectRepository } from '@nestjs/typeorm';
+import { EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { BookingPolicy } from '../entities/booking-policy.entity';
+import { PlaceClosure } from '../entities/place-closure.entity';
+import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
+import { Place } from '../entities/place.entity';
+import { BookingPolicyDto } from '../dto/booking-policy.dto';
+import { ClosureDto } from '../dto/closure.dto';
 import { CreatePlaceDto } from '../dto/create-place.dto';
+import { OpeningHourDto } from '../dto/opening-hour.dto';
 import { PlaceQueryDto } from '../dto/place-query.dto';
+import { UpdatePlaceDto } from '../dto/update-place.dto';
 import {
   PlaceDetailResponseDto,
   PlacePageResponseDto,
   toPlaceDetailResponse,
   toPlaceResponse,
 } from '../dto/place.response.dto';
-import { UpdatePlaceDto } from '../dto/update-place.dto';
-import { BookingPolicy } from '../entities/booking-policy.entity';
-import { Place } from '../entities/place.entity';
-import { BookingPoliciesService } from './booking-policies.service';
-import { OpeningHoursService } from './opening-hours.service';
 
-const PG_CHECK_VIOLATION = '23514';
-const PLACE_NOT_FOUND = 'Place not found';
+export function mapDbError(err: unknown): unknown {
+  if (!(err instanceof QueryFailedError)) return err;
+  const { code, constraint } = err.driverError as {
+    code?: string;
+    constraint?: string;
+  };
+  if (code === '23514' && constraint === 'booking_policies_max_chk')
+    return new BadRequestException(
+      'bookingPolicy.maxMinutes must be greater than or equal to minMinutes',
+    );
+  if (code === '23514' && constraint?.startsWith('booking_policies_'))
+    return new BadRequestException(`bookingPolicy violates ${constraint}`);
+  // Writes lock the place row, so these only fire on a race we did not foresee.
+  if (
+    code === '23505' &&
+    (constraint === 'place_opening_hours_place_weekday_uk' ||
+      constraint === 'place_closures_place_date_uk')
+  )
+    return new ConflictException('Place was changed concurrently, retry');
+  return err;
+}
 
-/** Escapes LIKE wildcards so `q` is matched literally. */
-const likeLiteral = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
+// For ILIKE: treat the user's %, _ and \ literally.
+export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, '\\$&');
 
-/**
- * Places plus their hours, closures and policy. Also the bookings module's
- * PLACE_RULES port (getBookingContext, isOpenForRange), bound in
- * bookings.module.ts with useExisting.
- */
+// DTO instances carry own `undefined` properties (useDefineForClassFields), and
+// Object.assign would copy them over real values.
+export function definedOnly<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
+
 @Injectable()
 export class PlacesService {
   constructor(
     @InjectRepository(Place) private readonly places: Repository<Place>,
-    @InjectDataSource() private readonly ds: DataSource,
-    private readonly hours: OpeningHoursService,
-    private readonly policies: BookingPoliciesService,
+    @InjectRepository(PlaceOpeningHour)
+    private readonly hours: Repository<PlaceOpeningHour>,
+    @InjectRepository(PlaceClosure)
+    private readonly closures: Repository<PlaceClosure>,
+    @InjectRepository(BookingPolicy)
+    private readonly policies: Repository<BookingPolicy>,
   ) {}
 
-  // ---- public reads: active, not deleted ----
-
+  /** Public list: active, not deleted. */
   async list(query: PlaceQueryDto): Promise<PlacePageResponseDto> {
     const qb = this.places
       .createQueryBuilder('place')
       .where('place.isActive = true');
-    if (query.q)
-      qb.andWhere('(place.name ILIKE :q OR place.address ILIKE :q)', {
-        q: likeLiteral(query.q),
-      });
     if (query.type) qb.andWhere('place.type = :type', { type: query.type });
+    if (query.search)
+      qb.andWhere('place.name ILIKE :search', {
+        search: `%${escapeLike(query.search)}%`,
+      });
     const [rows, total] = await qb
       .orderBy('place.name')
       .addOrderBy('place.id')
@@ -66,154 +92,166 @@ export class PlacesService {
     };
   }
 
-  async findPublicDetail(placeId: string): Promise<PlaceDetailResponseDto> {
-    return this.detail(await this.findVisible(placeId));
+  /** Public detail: 404 for inactive or deleted places. */
+  findVisible(placeId: string): Promise<PlaceDetailResponseDto> {
+    return this.detail(placeId, false);
   }
 
-  /** Throws 404 unless the place exists, is active and not deleted. */
-  async findVisible(placeId: string, manager?: EntityManager): Promise<Place> {
-    const place = await (manager ?? this.ds.manager)
-      .getRepository(Place)
-      .findOneBy({ id: placeId, isActive: true });
-    if (!place) throw new NotFoundException(PLACE_NOT_FOUND);
+  /** Active, non-deleted place, for other modules (e.g. bookings). */
+  async getActivePlace(placeId: string): Promise<Place> {
+    const place = await this.places.findOneBy({ id: placeId, isActive: true });
+    if (!place) throw new NotFoundException('Place not found');
     return place;
   }
 
-  /** Admin view: inactive places count, deleted ones don't. Throws 404. */
-  async findForAdmin(placeId: string, manager?: EntityManager): Promise<Place> {
-    const place = await (manager ?? this.ds.manager)
-      .getRepository(Place)
-      .findOneBy({ id: placeId });
-    if (!place) throw new NotFoundException(PLACE_NOT_FOUND);
+  /** Non-deleted place, active or not, for admin writes in other modules (e.g. areas). */
+  async getPlace(placeId: string): Promise<Place> {
+    const place = await this.places.findOneBy({ id: placeId });
+    if (!place) throw new NotFoundException('Place not found');
     return place;
   }
 
-  // ---- admin writes ----
-
-  /** Place + policy (+ hours, closures) in one transaction. */
   async create(dto: CreatePlaceDto): Promise<PlaceDetailResponseDto> {
-    const id = await this.write(async (m) => {
-      const place = await m.getRepository(Place).save(
-        m.getRepository(Place).create({
+    const placeId = await this.transaction(async (m) => {
+      const place = await m.save(
+        m.create(Place, {
           name: dto.name,
           type: dto.type,
           description: dto.description ?? null,
           address: dto.address,
           lat: dto.lat ?? null,
           lng: dto.lng ?? null,
-          // `??` so an explicit null falls back to the column default, not a NOT NULL error.
+          // undefined -> column default (Asia/Phnom_Penh, active)
           timezone: dto.timezone ?? undefined,
           isActive: dto.isActive ?? undefined,
         }),
       );
-      await this.policies.create(m, place.id, dto.policy);
-      if (dto.openingHours)
-        await this.hours.replaceHours(m, place.id, dto.openingHours);
-      if (dto.closures)
-        await this.hours.replaceClosures(m, place.id, dto.closures);
+      // Every place gets a policy row; omitted fields take the column defaults.
+      await m.insert(BookingPolicy, {
+        placeId: place.id,
+        ...definedOnly(dto.bookingPolicy ?? {}),
+      });
+      await this.replaceHours(m, place.id, dto.openingHours ?? []);
+      await this.replaceClosures(m, place.id, dto.closures ?? []);
       return place.id;
     });
-    return this.detail(await this.findForAdmin(id));
+    return this.detail(placeId, true);
   }
 
   async update(
     placeId: string,
     dto: UpdatePlaceDto,
   ): Promise<PlaceDetailResponseDto> {
-    await this.write(async (m) => {
-      const repo = m.getRepository(Place);
-      // Row lock: concurrent PATCHes of one place replace hours/closures one at a time.
-      const place = await repo.findOne({
-        where: { id: placeId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!place) throw new NotFoundException(PLACE_NOT_FOUND);
+    await this.transaction(async (m) => {
+      // Row lock: concurrent PATCHes of one place run one after another, so
+      // replacing hours/closures never interleaves.
+      const place = await m
+        .createQueryBuilder(Place, 'place')
+        .setLock('pessimistic_write')
+        .where('place.id = :placeId', { placeId })
+        .getOne();
+      if (!place) throw new NotFoundException('Place not found');
 
-      const fields = [
-        'name',
-        'type',
-        'description',
-        'address',
-        'lat',
-        'lng',
-        'timezone',
-        'isActive',
-      ] as const;
-      let changed = false;
-      for (const f of fields) {
-        if (dto[f] !== undefined) {
-          (place as unknown as Record<string, unknown>)[f] = dto[f];
-          changed = true;
-        }
-      }
-      if (changed) await repo.save(place);
-      if (dto.openingHours)
-        await this.hours.replaceHours(m, placeId, dto.openingHours);
-      if (dto.closures)
-        await this.hours.replaceClosures(m, placeId, dto.closures);
-      if (dto.policy) await this.policies.update(m, placeId, dto.policy);
+      const { openingHours, closures, bookingPolicy, ...fields } = dto;
+      Object.assign(place, definedOnly(fields));
+      await m.save(place);
+
+      if (openingHours) await this.replaceHours(m, placeId, openingHours);
+      if (closures) await this.replaceClosures(m, placeId, closures);
+      if (bookingPolicy) await this.mergePolicy(m, placeId, bookingPolicy);
     });
-    return this.detail(await this.findForAdmin(placeId));
+    return this.detail(placeId, true);
   }
 
-  /**
-   * Soft delete: the place, its areas and seats vanish from every read (they
-   * all filter on the place), and history rows keep their FKs.
-   */
   async softDelete(placeId: string): Promise<void> {
-    // shortcut: doesn't reject places with upcoming bookings; places can't import
-    // bookings (graph in docs/project-structure.md). Bookings dev adds that guard.
-    await this.findForAdmin(placeId);
-    await this.places.softDelete(placeId);
+    // shortcut: does not check future bookings (bookings imports places); bookings dev adds the guard.
+    // Seats of a deleted place already disappear from reads (seats checks places.deleted_at).
+    const place = await this.places.findOneBy({ id: placeId });
+    if (!place) throw new NotFoundException('Place not found');
+    await this.places.softDelete({ id: placeId });
   }
 
-  // ---- PLACE_RULES port for bookings ----
-
-  /** Throws 404 if the place doesn't exist, is inactive, or has no policy. */
-  async getBookingContext(
+  // includeInactive: admins still see (and edit) inactive places.
+  private async detail(
     placeId: string,
-    manager?: EntityManager,
-  ): Promise<{
-    placeId: string;
-    name: string;
-    timezone: string;
-    policy: BookingPolicy;
-  }> {
-    const place = await this.findVisible(placeId, manager);
-    const policy = await this.policies.findByPlace(placeId, manager);
-    if (!policy) throw new NotFoundException(PLACE_NOT_FOUND);
-    return { placeId, name: place.name, timezone: place.timezone, policy };
-  }
-
-  isOpenForRange(
-    placeId: string,
-    range: TimeRange,
-    manager?: EntityManager,
-  ): Promise<boolean> {
-    return this.hours.isOpenForRange(placeId, range, manager);
-  }
-
-  // ---- helpers ----
-
-  private async detail(place: Place): Promise<PlaceDetailResponseDto> {
+    includeInactive: boolean,
+  ): Promise<PlaceDetailResponseDto> {
+    const place = await this.places.findOneBy(
+      includeInactive ? { id: placeId } : { id: placeId, isActive: true },
+    );
+    if (!place) throw new NotFoundException('Place not found');
     const [hours, closures, policy] = await Promise.all([
-      this.hours.findHours(place.id),
-      this.hours.findUpcomingClosures(place.id),
-      this.policies.findByPlace(place.id),
+      this.hours.find({ where: { placeId }, order: { weekday: 'ASC' } }),
+      this.closures
+        .createQueryBuilder('c')
+        .where('c.placeId = :placeId', { placeId })
+        // "today" is the place's local date, not the server's.
+        .andWhere('c.date >= (now() AT TIME ZONE :tz)::date', {
+          tz: place.timezone,
+        })
+        .orderBy('c.date')
+        .getMany(),
+      this.policies.findOneBy({ placeId }),
     ]);
     return toPlaceDetailResponse(place, hours, closures, policy);
   }
 
-  /** Runs `fn` in a transaction; a CHECK the DTOs missed becomes 400, not 500. */
-  private async write<T>(fn: (m: EntityManager) => Promise<T>): Promise<T> {
+  private async replaceHours(
+    m: EntityManager,
+    placeId: string,
+    hours: OpeningHourDto[],
+  ) {
+    await m.delete(PlaceOpeningHour, { placeId });
+    if (!hours.length) return;
+    await m.insert(
+      PlaceOpeningHour,
+      hours.map((h) => ({
+        placeId,
+        weekday: h.weekday,
+        openTime: h.openTime,
+        closeTime: h.closeTime,
+        closesNextDay: h.closesNextDay ?? false,
+      })),
+    );
+  }
+
+  private async replaceClosures(
+    m: EntityManager,
+    placeId: string,
+    closures: ClosureDto[],
+  ) {
+    await m.delete(PlaceClosure, { placeId });
+    if (!closures.length) return;
+    await m.insert(
+      PlaceClosure,
+      closures.map((c) => ({
+        placeId,
+        date: c.date,
+        reason: c.reason ?? null,
+      })),
+    );
+  }
+
+  private async mergePolicy(
+    m: EntityManager,
+    placeId: string,
+    patch: BookingPolicyDto,
+  ) {
+    // Places created outside this API (older rows, fixtures) may lack a policy row.
+    const policy =
+      (await m.findOneBy(BookingPolicy, { placeId })) ??
+      m.create(BookingPolicy, { placeId });
+    Object.assign(policy, definedOnly(patch));
+    await m.save(policy);
+  }
+
+  private async transaction<T>(
+    work: (m: EntityManager) => Promise<T>,
+  ): Promise<T> {
     try {
-      return await this.ds.transaction(fn);
+      return await this.places.manager.transaction(work);
     } catch (err) {
-      if (isPgError(err, PG_CHECK_VIOLATION))
-        throw new BadRequestException(
-          'Values violate a place, hours or policy rule',
-        );
-      throw err;
+      throw mapDbError(err);
     }
   }
 }

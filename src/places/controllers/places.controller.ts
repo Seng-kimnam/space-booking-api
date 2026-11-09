@@ -14,15 +14,14 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { PlacesService } from '../services/places.service';
 import { PlaceQueryDto } from '../dto/place-query.dto';
 import {
   PlaceDetailResponseDto,
   PlacePageResponseDto,
 } from '../dto/place.response.dto';
-import { PlacesService } from '../services/places.service';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
-// shortcut: Client `places:read` access (api-clients module) isn't wired yet; these are public.
 @ApiTags('places')
 @UsePipes(
   new ValidationPipe({
@@ -36,7 +35,7 @@ export class PlacesController {
   constructor(private readonly places: PlacesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List / search active places' })
+  @ApiOperation({ summary: 'List / search places' })
   @ApiOkResponse({ type: PlacePageResponseDto })
   @ApiBadRequestResponse()
   list(@Query() query: PlaceQueryDto) {
@@ -51,6 +50,6 @@ export class PlacesController {
   @ApiBadRequestResponse()
   @ApiNotFoundResponse()
   findOne(@Param('placeId', ParseUUIDPipe) placeId: string) {
-    return this.places.findPublicDetail(placeId);
+    return this.places.findVisible(placeId);
   }
 }

@@ -21,19 +21,18 @@ export class PlaceResponseDto {
 
 export class OpeningHourResponseDto {
   @ApiProperty({ description: '0 = Sunday .. 6 = Saturday' }) weekday: number;
-  @ApiProperty({ example: '08:00' }) openTime: string;
-  @ApiProperty({ example: '20:00' }) closeTime: string;
+  @ApiProperty({ example: '07:00:00' }) openTime: string;
+  @ApiProperty({ example: '21:00:00' }) closeTime: string;
   @ApiProperty() closesNextDay: boolean;
 }
 
-export class PlaceClosureResponseDto {
+export class ClosureResponseDto {
   @ApiProperty({ example: '2026-12-25' }) date: string;
   @ApiProperty({ nullable: true, type: String }) reason: string | null;
 }
 
 export class BookingPolicyResponseDto {
   @ApiProperty() checkinGraceMinutes: number;
-  @ApiProperty() lateCheckinAlertMinutes: number;
   @ApiProperty() checkoutReminderMinutes: number;
   @ApiProperty() overdueAlertMinutes: number;
   @ApiProperty() minMinutes: number;
@@ -46,20 +45,17 @@ export class BookingPolicyResponseDto {
 }
 
 export class PlaceDetailResponseDto extends PlaceResponseDto {
-  @ApiProperty({
-    type: [OpeningHourResponseDto],
-    description: 'Sorted by weekday; a missing weekday is closed',
-  })
+  @ApiProperty({ type: [OpeningHourResponseDto] })
   openingHours: OpeningHourResponseDto[];
 
   @ApiProperty({
-    type: [PlaceClosureResponseDto],
-    description: 'Closures from today (place-local date) on',
+    type: [ClosureResponseDto],
+    description: 'Closures from today (in the place timezone) onwards',
   })
-  closures: PlaceClosureResponseDto[];
+  closures: ClosureResponseDto[];
 
   @ApiProperty({ type: BookingPolicyResponseDto, nullable: true })
-  policy: BookingPolicyResponseDto | null;
+  bookingPolicy: BookingPolicyResponseDto | null;
 }
 
 export class PlacePageResponseDto {
@@ -69,7 +65,7 @@ export class PlacePageResponseDto {
   @ApiProperty() total: number;
 }
 
-// Explicit copies so internal fields (deletedAt, relations) never leak.
+// Explicit copies so internal fields (deletedAt, relations, ids of child rows) never leak.
 export function toPlaceResponse(p: Place): PlaceResponseDto {
   return {
     id: p.id,
@@ -86,44 +82,32 @@ export function toPlaceResponse(p: Place): PlaceResponseDto {
   };
 }
 
-export function toOpeningHourResponse(
-  h: PlaceOpeningHour,
-): OpeningHourResponseDto {
-  // pg returns `time` as 'HH:mm:ss'; input is HH:mm, so output matches it.
-  return {
-    weekday: h.weekday,
-    openTime: h.openTime.slice(0, 5),
-    closeTime: h.closeTime.slice(0, 5),
-    closesNextDay: h.closesNextDay,
-  };
-}
-
-export function toPolicyResponse(p: BookingPolicy): BookingPolicyResponseDto {
-  return {
-    checkinGraceMinutes: p.checkinGraceMinutes,
-    lateCheckinAlertMinutes: p.lateCheckinAlertMinutes,
-    checkoutReminderMinutes: p.checkoutReminderMinutes,
-    overdueAlertMinutes: p.overdueAlertMinutes,
-    minMinutes: p.minMinutes,
-    maxMinutes: p.maxMinutes,
-    slotMinutes: p.slotMinutes,
-    maxAdvanceDays: p.maxAdvanceDays,
-    maxActivePerUser: p.maxActivePerUser,
-    maxExtensions: p.maxExtensions,
-    modifyCutoffMinutes: p.modifyCutoffMinutes,
-  };
-}
-
 export function toPlaceDetailResponse(
-  place: Place,
+  p: Place,
   hours: PlaceOpeningHour[],
   closures: PlaceClosure[],
   policy: BookingPolicy | null,
 ): PlaceDetailResponseDto {
   return {
-    ...toPlaceResponse(place),
-    openingHours: hours.map(toOpeningHourResponse),
+    ...toPlaceResponse(p),
+    openingHours: hours.map((h) => ({
+      weekday: h.weekday,
+      openTime: h.openTime,
+      closeTime: h.closeTime,
+      closesNextDay: h.closesNextDay,
+    })),
     closures: closures.map((c) => ({ date: c.date, reason: c.reason })),
-    policy: policy ? toPolicyResponse(policy) : null,
+    bookingPolicy: policy && {
+      checkinGraceMinutes: policy.checkinGraceMinutes,
+      checkoutReminderMinutes: policy.checkoutReminderMinutes,
+      overdueAlertMinutes: policy.overdueAlertMinutes,
+      minMinutes: policy.minMinutes,
+      maxMinutes: policy.maxMinutes,
+      slotMinutes: policy.slotMinutes,
+      maxAdvanceDays: policy.maxAdvanceDays,
+      maxActivePerUser: policy.maxActivePerUser,
+      maxExtensions: policy.maxExtensions,
+      modifyCutoffMinutes: policy.modifyCutoffMinutes,
+    },
   };
 }

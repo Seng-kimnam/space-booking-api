@@ -2,31 +2,37 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsEnum,
-  IsLatitude,
-  IsLongitude,
+  IsNumber,
   IsObject,
   IsString,
   Length,
+  Max,
+  MaxLength,
+  Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PlaceType } from '../../common/enums';
 import { BookingPolicyDto } from './booking-policy.dto';
-import { MAX_CLOSURES } from './create-place.dto';
-import { OpeningHourDto, PlaceClosureDto } from './opening-hour.dto';
+import { ClosureDto } from './closure.dto';
+import { OpeningHourDto } from './opening-hour.dto';
 import {
-  IsIanaTimezone,
-  present,
-  presentNotNull,
+  IsIanaTimeZone,
+  MAX_CLOSURES,
+  canonicalTimeZone,
   trim,
-} from './place-validators';
+} from './create-place.dto';
 
 // Not PartialType: its @IsOptional also skips null, and null on a NOT NULL
-// column would reach Postgres and return 500. Only undefined means "unchanged";
-// description, lat and lng alone may be null (clears them).
+// column would reach Postgres and 500. Here undefined means "unchanged";
+// only description, lat and lng may be set to null (cleared).
+const present = (_: unknown, v: unknown) => v !== undefined;
+const notNull = (_: unknown, v: unknown) => v !== undefined && v !== null;
+
 export class UpdatePlaceDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 150 })
   @Transform(trim)
@@ -41,9 +47,10 @@ export class UpdatePlaceDto {
   type?: PlaceType;
 
   @ApiPropertyOptional({ maxLength: 2000, nullable: true })
-  @ValidateIf(presentNotNull)
+  @Transform(trim)
+  @ValidateIf(notNull)
   @IsString()
-  @Length(0, 2000)
+  @MaxLength(2000)
   description?: string | null;
 
   @ApiPropertyOptional({ minLength: 1, maxLength: 255 })
@@ -54,18 +61,23 @@ export class UpdatePlaceDto {
   address?: string;
 
   @ApiPropertyOptional({ minimum: -90, maximum: 90, nullable: true })
-  @ValidateIf(presentNotNull)
-  @IsLatitude()
+  @ValidateIf(notNull)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-90)
+  @Max(90)
   lat?: number | null;
 
   @ApiPropertyOptional({ minimum: -180, maximum: 180, nullable: true })
-  @ValidateIf(presentNotNull)
-  @IsLongitude()
+  @ValidateIf(notNull)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(-180)
+  @Max(180)
   lng?: number | null;
 
-  @ApiPropertyOptional({ description: 'IANA time zone' })
+  @ApiPropertyOptional({ example: 'Asia/Phnom_Penh' })
+  @Transform(canonicalTimeZone)
   @ValidateIf(present)
-  @IsIanaTimezone()
+  @IsIanaTimeZone()
   timezone?: string;
 
   @ApiPropertyOptional()
@@ -76,33 +88,41 @@ export class UpdatePlaceDto {
   @ApiPropertyOptional({
     type: [OpeningHourDto],
     description:
-      'Replaces the whole weekly schedule when sent ([] = closed every day)',
+      'Replaces ALL opening hours of the place. [] closes it every day.',
   })
   @ValidateIf(present)
   @IsArray()
   @ArrayMaxSize(7)
+  @ArrayUnique((h: OpeningHourDto) => h?.weekday, {
+    message: 'openingHours must not repeat a weekday',
+  })
   @ValidateNested({ each: true })
   @Type(() => OpeningHourDto)
   openingHours?: OpeningHourDto[];
 
   @ApiPropertyOptional({
-    type: [PlaceClosureDto],
-    description: 'Replaces the whole closure list when sent ([] = no closures)',
+    type: [ClosureDto],
+    maxItems: MAX_CLOSURES,
+    description: 'Replaces ALL closures of the place. [] removes them.',
   })
   @ValidateIf(present)
   @IsArray()
   @ArrayMaxSize(MAX_CLOSURES)
+  @ArrayUnique((c: ClosureDto) => c?.date, {
+    message: 'closures must not repeat a date',
+  })
   @ValidateNested({ each: true })
-  @Type(() => PlaceClosureDto)
-  closures?: PlaceClosureDto[];
+  @Type(() => ClosureDto)
+  closures?: ClosureDto[];
 
   @ApiPropertyOptional({
     type: BookingPolicyDto,
-    description: 'Only the fields sent change',
+    description:
+      'Merged into the current policy; omitted fields are unchanged.',
   })
   @ValidateIf(present)
   @IsObject()
   @ValidateNested()
   @Type(() => BookingPolicyDto)
-  policy?: BookingPolicyDto;
+  bookingPolicy?: BookingPolicyDto;
 }
