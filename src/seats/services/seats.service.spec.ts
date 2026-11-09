@@ -1,12 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { QueryFailedError, Repository } from 'typeorm';
 import { Seat } from '../entities/seat.entity';
 import { SeatStatus } from '../../common/enums';
 import { toSeatResponse } from '../dto/seat.response.dto';
+import { PlacesService } from '../../places/services/places.service';
 import { SeatsService } from './seats.service';
 
 const dbError = (code: string, constraint: string) =>
@@ -20,73 +22,182 @@ const repoFailing = (err: unknown) =>
     manager: { query: async () => [{}] },
   }) as unknown as Repository<Seat>;
 
+// PlacesService stand-in: the place exists (or not, with the real 404).
+const places = (found = true) =>
+  ({
+    getPlace: async () => {
+      if (!found) throw new NotFoundException('Place not found');
+      return {};
+    },
+    getActivePlace: async () => {
+      if (!found) throw new NotFoundException('Place not found');
+      return {};
+    },
+  }) as unknown as PlacesService;
+
+const seatRow = (over: Partial<Seat> = {}): Seat =>
+  ({
+    id: 's1',
+    placeId: 'p',
+    areaId: null,
+    label: 'A1',
+    features: {},
+    status: SeatStatus.ACTIVE,
+    ...over,
+  }) as Seat;
+
+// Repository whose admin lookup finds `seat`, and whose save echoes it back.
+const repoWithSeat = (seat: Seat | null) => {
+  const qb = {
+    where: () => qb,
+    andWhere: () => qb,
+    getOne: async () => seat,
+  };
+  return {
+    createQueryBuilder: () => qb,
+    create: (v: object) => ({ id: 's1', ...v }),
+    save: jest.fn(async (v: Seat) => v),
+    softDelete: jest.fn(async () => undefined),
+    manager: { query: async () => [{}] },
+  };
+};
+
 describe('SeatsService', () => {
-  it('create maps unique-label violation to 409', async () => {
+  let log: jest.SpyInstance;
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    log = jest
+      .spyOn(Logger.prototype, 'log')
+      .mockImplementation(() => undefined);
+    warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('create maps unique-label violation to 409 and warns', async () => {
     await expect(
       new SeatsService(
         repoFailing(dbError('23505', 'seats_place_label_uk')),
+        places(),
       ).create('p', { label: 'A' }),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(warn).toHaveBeenCalledWith(
+      'Seat write rejected: Seat label already exists in this place',
+    );
   });
 
   it('create maps composite FK violation to 400', async () => {
     await expect(
       new SeatsService(
         repoFailing(dbError('23503', 'seats_area_same_place_fk')),
+        places(),
       ).create('p', { label: 'A' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('create rethrows unknown DB errors', async () => {
+  it('create rethrows unknown DB errors without a warn', async () => {
     const err = dbError('99999', 'other');
     await expect(
-      new SeatsService(repoFailing(err)).create('p', { label: 'A' }),
+      new SeatsService(repoFailing(err), places()).create('p', { label: 'A' }),
     ).rejects.toBe(err);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('create throws 404 when the place is missing and 400 when the area is foreign', async () => {
-    const repo = (rows: unknown[]) =>
-      ({ manager: { query: async () => rows } }) as unknown as Repository<Seat>;
     await expect(
-      new SeatsService(repo([])).create('p', { label: 'A' }),
+      new SeatsService({} as Repository<Seat>, places(false)).create('p', {
+        label: 'A',
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
-    const calls = [[{}], []];
     const r = {
-      manager: { query: async () => calls.shift() },
+      manager: { query: async () => [] }, // area lookup finds nothing
     } as unknown as Repository<Seat>;
     await expect(
-      new SeatsService(r).create('p', { label: 'A', areaId: 'a' }),
+      new SeatsService(r, places()).create('p', { label: 'A', areaId: 'a' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('listByPlace throws 404 when the place is not visible', async () => {
+    await expect(
+      new SeatsService({} as Repository<Seat>, places(false)).listByPlace('p', {
+        page: 1,
+        limit: 20,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('update, setStatus and softDelete throw 404 for an unknown seat', async () => {
-    const qb = {
-      where: () => qb,
-      andWhere: () => qb,
-      getOne: async () => null,
-    };
-    const svc = new SeatsService({
-      createQueryBuilder: () => qb,
-    } as unknown as Repository<Seat>);
+    const svc = new SeatsService(
+      repoWithSeat(null) as unknown as Repository<Seat>,
+      places(),
+    );
     await expect(svc.update('x', {})).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.setStatus('x', 'ACTIVE' as never)).rejects.toBeInstanceOf(
       NotFoundException,
     );
     await expect(svc.softDelete('x')).rejects.toBeInstanceOf(NotFoundException);
+    expect(log).not.toHaveBeenCalled();
   });
 
   it('findOne throws 404 when the seat is not visible', async () => {
-    const qb = {
-      where: () => qb,
-      andWhere: () => qb,
-      getOne: async () => null,
-    };
-    const repo = {
-      createQueryBuilder: () => qb,
-    } as unknown as Repository<Seat>;
-    await expect(new SeatsService(repo).findOne('x')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    const repo = repoWithSeat(null) as unknown as Repository<Seat>;
+    await expect(
+      new SeatsService(repo, places()).findOne('x'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('audit logging', () => {
+    it('logs create with id, place and label', async () => {
+      const repo = repoWithSeat(null);
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).create('p', { label: 'A1' });
+      expect(log).toHaveBeenCalledWith('Seat created: id=s1 place=p label=A1');
+    });
+
+    it('logs which fields an update changed', async () => {
+      const repo = repoWithSeat(seatRow());
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'B2' });
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=label');
+    });
+
+    it('logs a status change with old and new status', async () => {
+      const repo = repoWithSeat(seatRow());
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).setStatus('s1', SeatStatus.MAINTENANCE);
+      expect(log).toHaveBeenCalledWith(
+        'Seat status changed: id=s1 ACTIVE -> MAINTENANCE',
+      );
+    });
+
+    it('setting the same status is a no-op: no save, no log', async () => {
+      const repo = repoWithSeat(seatRow());
+      const result = await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).setStatus('s1', SeatStatus.ACTIVE);
+      expect(result.status).toBe(SeatStatus.ACTIVE);
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it('logs a soft delete', async () => {
+      const repo = repoWithSeat(seatRow());
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).softDelete('s1');
+      expect(repo.softDelete).toHaveBeenCalledWith('s1');
+      expect(log).toHaveBeenCalledWith('Seat deleted: id=s1 place=p label=A1');
+    });
   });
 
   it('toSeatResponse exposes exactly the 8 DTO keys', () => {

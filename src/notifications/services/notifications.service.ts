@@ -37,7 +37,10 @@ export class NotificationsService {
    * Idempotent per (booking, type, channel) for once-per-booking alerts; change
    * alerts (BOOKING_MODIFIED, BOOKING_EXTENDED, CHECKED_IN, CHECKED_OUT) insert a row per change.
    */
-  schedule(manager: EntityManager, alerts: ScheduleBookingAlert[]): Promise<void> {
+  schedule(
+    manager: EntityManager,
+    alerts: ScheduleBookingAlert[],
+  ): Promise<void> {
     return this.repository.insertIgnoringDuplicates(
       manager,
       alerts.map((a) => ({
@@ -60,7 +63,13 @@ export class NotificationsService {
     /** New times for the message (e.g. startAt/endAt after a modify). */
     payloadPatch?: Partial<BookingAlertPayload>,
   ): Promise<void> {
-    return this.repository.reschedulePending(manager, bookingIds, type, scheduledAt, payloadPatch);
+    return this.repository.reschedulePending(
+      manager,
+      bookingIds,
+      type,
+      scheduledAt,
+      payloadPatch,
+    );
   }
 
   /** Pending alerts that no longer apply (checked in, cancelled, expired) become SKIPPED. */

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -64,6 +65,11 @@ function rangeTimes(range: TimeRange): { startAt: string; endAt: string } {
 
 @Injectable()
 export class BookingsService {
+  // Forwards to AppLogger (main.ts). One line per committed change, logged after
+  // the transaction so a rolled-back change is never reported. Ids only: no
+  // emails, QR secrets or Idempotency-Keys.
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly bookings: BookingsRepository,
@@ -94,7 +100,10 @@ export class BookingsService {
     if (new Set(seatIds).size !== seatIds.length) {
       throw new BadRequestException('The same seat is listed twice');
     }
-    const range: TimeRange = { start: new Date(dto.startAt), end: new Date(dto.endAt) };
+    const range: TimeRange = {
+      start: new Date(dto.startAt),
+      end: new Date(dto.endAt),
+    };
     const now = new Date();
 
     let groupId: string;
@@ -104,18 +113,29 @@ export class BookingsService {
 
         const found = await this.seats.findBookable(seatIds, manager);
         if (found.length !== seatIds.length) {
-          throw new NotFoundException('One or more seats do not exist or cannot be booked');
+          throw new NotFoundException(
+            'One or more seats do not exist or cannot be booked',
+          );
         }
         if (new Set(found.map((s) => s.placeId)).size > 1) {
-          throw new BadRequestException('All seats in one booking must be in the same place');
+          throw new BadRequestException(
+            'All seats in one booking must be in the same place',
+          );
         }
         // Keep the caller's order (the first seat carries the idempotency key).
         const seats = seatIds.map((id) => found.find((s) => s.id === id)!);
 
-        const ctx = await this.placeRules.getBookingContext(seats[0].placeId, manager);
+        const ctx = await this.placeRules.getBookingContext(
+          seats[0].placeId,
+          manager,
+        );
         this.rules.validateNewRange(range, ctx.policy, now);
-        if (!(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))) {
-          throw new BadRequestException('The place is closed during part of this time');
+        if (
+          !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
+        ) {
+          throw new BadRequestException(
+            'The place is closed during part of this time',
+          );
         }
         const active = await this.bookings.countActiveForUser(manager, user.id);
         if (active + seats.length > ctx.policy.maxActivePerUser) {
@@ -170,10 +190,16 @@ export class BookingsService {
       }
       throw err;
     }
+    this.logger.log(
+      `Booking created: group=${groupId} seats=${seatIds.length} user=${user.id}`,
+    );
     return this.groupResponse(groupId);
   }
 
-  async listMine(user: AuthUser, query: MyBookingsQueryDto): Promise<PaginatedBookingsResponseDto> {
+  async listMine(
+    user: AuthUser,
+    query: MyBookingsQueryDto,
+  ): Promise<PaginatedBookingsResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const { items, total } = await this.bookings.listForUser(
@@ -185,7 +211,10 @@ export class BookingsService {
     return { items: items.map(toBookingResponse), page, limit, total };
   }
 
-  async getMine(user: AuthUser, bookingId: string): Promise<BookingResponseDto> {
+  async getMine(
+    user: AuthUser,
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
     return toBookingResponse(await this.findOwned(user, bookingId));
   }
 
@@ -196,21 +225,32 @@ export class BookingsService {
     dto: ModifyBookingDto,
     scope: BookingScope,
   ): Promise<BookingGroupResponseDto> {
-    const range: TimeRange = { start: new Date(dto.startAt), end: new Date(dto.endAt) };
+    const range: TimeRange = {
+      start: new Date(dto.startAt),
+      end: new Date(dto.endAt),
+    };
     const now = new Date();
 
     const target = await this.dataSource.transaction(async (manager) => {
       const targets = await this.loadTargets(manager, user, bookingId, scope);
-      const ctx = await this.placeRules.getBookingContext(targets[0].seat.placeId, manager);
+      const ctx = await this.placeRules.getBookingContext(
+        targets[0].seat.placeId,
+        manager,
+      );
       for (const b of targets) this.rules.validateModify(b, ctx.policy, now);
       this.rules.validateNewRange(range, ctx.policy, now);
-      if (!(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))) {
-        throw new BadRequestException('The place is closed during part of this time');
+      if (
+        !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
+      ) {
+        throw new BadRequestException(
+          'The place is closed during part of this time',
+        );
       }
 
       const oldRanges = new Map(targets.map((b) => [b.id, b.timeRange]));
       // Any overlap with another booking -> 23P01 -> 409, and the whole group rolls back.
-      for (const b of targets) await this.bookings.updateRange(manager, b, range);
+      for (const b of targets)
+        await this.bookings.updateRange(manager, b, range);
 
       const ids = targets.map((b) => b.id);
       // Codes carry the old window in expires_at; the user fetches new ones.
@@ -222,11 +262,20 @@ export class BookingsService {
         this.activity.lateCheckinAt(range, ctx.policy),
         {
           ...rangeTimes(range),
-          checkinDeadline: addMinutes(range.start, ctx.policy.checkinGraceMinutes).toISOString(),
+          checkinDeadline: addMinutes(
+            range.start,
+            ctx.policy.checkinGraceMinutes,
+          ).toISOString(),
         },
       );
       await this.rescheduleReminder(manager, ids, range, ctx.policy);
-      await this.scheduleChangeAlert(manager, targets, NotificationType.BOOKING_MODIFIED, oldRanges, now);
+      await this.scheduleChangeAlert(
+        manager,
+        targets,
+        NotificationType.BOOKING_MODIFIED,
+        oldRanges,
+        now,
+      );
       await this.activity.record(manager, targets, {
         event: BookingEventType.MODIFIED,
         routingKey: BookingRoutingKey.MODIFIED,
@@ -235,7 +284,13 @@ export class BookingsService {
       });
       return targets[0];
     });
-    return this.groupResponse(target, scope === 'booking' ? [target.id] : undefined);
+    this.logger.log(
+      `Booking modified: booking=${target.id} group=${target.groupId ?? '-'} scope=${scope} user=${user.id}`,
+    );
+    return this.groupResponse(
+      target,
+      scope === 'booking' ? [target.id] : undefined,
+    );
   }
 
   /** Moves the end later (PENDING or CHECKED_IN), up to booking_policies.max_extensions. */
@@ -250,19 +305,37 @@ export class BookingsService {
 
     const target = await this.dataSource.transaction(async (manager) => {
       const targets = await this.loadTargets(manager, user, bookingId, scope);
-      const ctx = await this.placeRules.getBookingContext(targets[0].seat.placeId, manager);
+      const ctx = await this.placeRules.getBookingContext(
+        targets[0].seat.placeId,
+        manager,
+      );
 
       const oldRanges = new Map(targets.map((b) => [b.id, b.timeRange]));
       for (const b of targets) {
         const range = this.rules.validateExtend(b, newEnd, ctx.policy, now);
-        if (!(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))) {
-          throw new BadRequestException('The place is closed during part of this time');
+        if (
+          !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
+        ) {
+          throw new BadRequestException(
+            'The place is closed during part of this time',
+          );
         }
-        await this.bookings.updateRange(manager, b, range, b.extensionCount + 1);
+        await this.bookings.updateRange(
+          manager,
+          b,
+          range,
+          b.extensionCount + 1,
+        );
         await this.rescheduleReminder(manager, [b.id], range, ctx.policy);
       }
 
-      await this.scheduleChangeAlert(manager, targets, NotificationType.BOOKING_EXTENDED, oldRanges, now);
+      await this.scheduleChangeAlert(
+        manager,
+        targets,
+        NotificationType.BOOKING_EXTENDED,
+        oldRanges,
+        now,
+      );
       await this.activity.record(manager, targets, {
         event: BookingEventType.EXTENDED,
         routingKey: BookingRoutingKey.EXTENDED,
@@ -271,7 +344,13 @@ export class BookingsService {
       });
       return targets[0];
     });
-    return this.groupResponse(target, scope === 'booking' ? [target.id] : undefined);
+    this.logger.log(
+      `Booking extended: booking=${target.id} group=${target.groupId ?? '-'} scope=${scope} user=${user.id}`,
+    );
+    return this.groupResponse(
+      target,
+      scope === 'booking' ? [target.id] : undefined,
+    );
   }
 
   /** The user cancels (PENDING, before the cutoff). The row is kept; the seat frees up. */
@@ -284,17 +363,35 @@ export class BookingsService {
     const now = new Date();
     const target = await this.dataSource.transaction(async (manager) => {
       const targets = await this.loadTargets(manager, user, bookingId, scope);
-      const ctx = await this.placeRules.getBookingContext(targets[0].seat.placeId, manager);
-      for (const b of targets) this.rules.validateUserCancel(b, ctx.policy, now);
-      await this.cancelInTransaction(manager, targets, { userId: user.id }, dto.reason ?? null, now);
+      const ctx = await this.placeRules.getBookingContext(
+        targets[0].seat.placeId,
+        manager,
+      );
+      for (const b of targets)
+        this.rules.validateUserCancel(b, ctx.policy, now);
+      await this.cancelInTransaction(
+        manager,
+        targets,
+        { userId: user.id },
+        dto.reason ?? null,
+        now,
+      );
       return targets[0];
     });
-    return this.groupResponse(target, scope === 'booking' ? [target.id] : undefined);
+    this.logger.log(
+      `Booking cancelled: booking=${target.id} group=${target.groupId ?? '-'} scope=${scope} user=${user.id}`,
+    );
+    return this.groupResponse(
+      target,
+      scope === 'booking' ? [target.id] : undefined,
+    );
   }
 
   // ---- admin ----
 
-  async listAll(query: AdminBookingsQueryDto): Promise<PaginatedBookingsResponseDto> {
+  async listAll(
+    query: AdminBookingsQueryDto,
+  ): Promise<PaginatedBookingsResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const { items, total } = await this.bookings.listAdmin(
@@ -312,11 +409,16 @@ export class BookingsService {
     return { items: items.map(toBookingResponse), page, limit, total };
   }
 
-  async getAnyWithEvents(bookingId: string): Promise<AdminBookingDetailResponseDto> {
+  async getAnyWithEvents(
+    bookingId: string,
+  ): Promise<AdminBookingDetailResponseDto> {
     const booking = await this.bookings.findById(bookingId);
     if (!booking) throw new NotFoundException('Booking not found');
     const events = await this.bookings.findEvents(bookingId);
-    return { ...toBookingResponse(booking), events: events.map(toBookingEventResponse) };
+    return {
+      ...toBookingResponse(booking),
+      events: events.map(toBookingEventResponse),
+    };
   }
 
   /** Admin cancel: any PENDING booking, no cutoff. */
@@ -328,8 +430,17 @@ export class BookingsService {
     await this.dataSource.transaction(async (manager) => {
       const booking = await this.bookings.findById(bookingId, manager, true);
       if (!booking) throw new NotFoundException('Booking not found');
-      await this.cancelInTransaction(manager, [booking], { userId: admin.id }, reason, new Date());
+      await this.cancelInTransaction(
+        manager,
+        [booking],
+        { userId: admin.id },
+        reason,
+        new Date(),
+      );
     });
+    this.logger.log(
+      `Booking cancelled by admin: booking=${bookingId} admin=${admin.id}`,
+    );
     return toBookingResponse((await this.bookings.findById(bookingId))!);
   }
 
@@ -342,7 +453,8 @@ export class BookingsService {
     reason: string | null,
     now: Date,
   ): Promise<void> {
-    for (const b of targets) assertTransition(b.status, BookingStatus.CANCELLED);
+    for (const b of targets)
+      assertTransition(b.status, BookingStatus.CANCELLED);
     const ids = targets.map((b) => b.id);
     await this.bookings.updateFields(manager, ids, {
       status: BookingStatus.CANCELLED,
@@ -417,11 +529,16 @@ export class BookingsService {
         at,
         {
           ...rangeTimes(range),
-          checkinDeadline: addMinutes(range.start, policy.checkinGraceMinutes).toISOString(),
+          checkinDeadline: addMinutes(
+            range.start,
+            policy.checkinGraceMinutes,
+          ).toISOString(),
         },
       );
     } else {
-      await this.notifications.skipPending(manager, ids, [NotificationType.CHECKOUT_REMINDER]);
+      await this.notifications.skipPending(manager, ids, [
+        NotificationType.CHECKOUT_REMINDER,
+      ]);
     }
   }
 
@@ -438,9 +555,9 @@ export class BookingsService {
     }
     if (scope === 'booking' || !booking.groupId) return [booking];
     // Seats already finished (e.g. one cancelled earlier) are left alone.
-    const group = (await this.bookings.findGroup(booking.groupId, manager, true)).filter(
-      (b) => b.userId === user.id && b.status === booking.status,
-    );
+    const group = (
+      await this.bookings.findGroup(booking.groupId, manager, true)
+    ).filter((b) => b.userId === user.id && b.status === booking.status);
     return group.length > 0 ? group : [booking];
   }
 
