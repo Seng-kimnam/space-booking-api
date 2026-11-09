@@ -20,6 +20,7 @@ dotenv.config();
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthGuard, MailService],
-  exports: [AuthService],
+  // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
+  exports: [AuthService, AuthGuard, JwtModule],
 })
 export class AuthModule {}

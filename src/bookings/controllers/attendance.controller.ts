@@ -17,7 +17,7 @@ import { ScanQrDto } from '../dto/booking-request.dto';
 import { AttendanceResponseDto } from '../dto/booking-response.dto';
 import { AttendanceService } from '../services/attendance.service';
 
-@ApiTags('Check-in / check-out')
+@ApiTags('Check-in & Check-out')
 @ApiBearerAuth()
 @Secured(UserRole.USER, UserRole.ADMIN)
 @Controller()

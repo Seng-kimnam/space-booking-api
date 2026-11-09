@@ -38,7 +38,7 @@ import {
 import { AreasService } from '../services/areas.service';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
-@ApiTags('admin-areas')
+@ApiTags('Areas')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()

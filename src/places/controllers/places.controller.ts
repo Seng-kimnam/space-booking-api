@@ -22,7 +22,7 @@ import {
 } from '../dto/place.response.dto';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
-@ApiTags('places')
+@ApiTags('Places')
 @UsePipes(
   new ValidationPipe({
     whitelist: true,

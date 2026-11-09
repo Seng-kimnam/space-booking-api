@@ -8,7 +8,7 @@ export interface HealthResponse {
   uptime: number;
 }
 
-@ApiTags('health')
+@ApiTags('Health')
 @Controller()
 export class AppController {
   @Get('health')

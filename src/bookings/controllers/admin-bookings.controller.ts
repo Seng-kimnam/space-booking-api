@@ -36,7 +36,7 @@ import { BookingsService } from '../services/bookings.service';
 
 const uuid = new ParseUUIDPipe({ version: 'all' });
 
-@ApiTags('Admin: bookings')
+@ApiTags('Bookings')
 @ApiBearerAuth()
 @Secured(UserRole.ADMIN)
 @Controller('admin/bookings')

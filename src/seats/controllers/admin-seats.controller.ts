@@ -36,7 +36,7 @@ import { UpdateSeatStatusDto } from '../dto/update-seat-status.dto';
 import { SeatResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
-@ApiTags('admin-seats')
+@ApiTags('Seats')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()
