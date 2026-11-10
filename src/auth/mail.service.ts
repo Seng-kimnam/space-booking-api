@@ -1,10 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { Transporter } from 'nodemailer';
 
+/** Fields of a nodemailer/SMTP error that are safe to log. */
+interface SmtpErrorInfo {
+  code?: string;
+  responseCode?: number;
+  command?: string;
+}
+
 @Injectable()
 export class MailService {
+  // Forwards to AppLogger (main.ts). Never logs the recipient, the OTP or the
+  // SMTP error text: SMTP replies often echo the address ("<a@b.c>: rejected").
+  private readonly logger = new Logger(MailService.name);
   private readonly transporter: Transporter;
   private readonly from: string;
 
@@ -17,7 +27,7 @@ export class MailService {
     this.from = this.configService.getOrThrow<string>('mail.from');
   }
 
-  sendOtp(
+  async sendOtp(
     email: string,
     purpose: 'EMAIL_VERIFY' | 'PASSWORD_RESET',
     otp: string,
@@ -27,13 +37,23 @@ export class MailService {
         ? 'Verify your Space Booking account'
         : 'Reset your Space Booking password';
 
-    return this.transporter
-      .sendMail({
+    try {
+      await this.transporter.sendMail({
         from: this.from,
         to: email,
         subject,
         text: `Your one-time code is ${otp}. It expires in 10 minutes.`,
-      })
-      .then(() => undefined);
+      });
+    } catch (err) {
+      const { code, responseCode, command } = (err ?? {}) as SmtpErrorInfo;
+      this.logger.error(
+        `OTP email not sent: purpose=${purpose} code=${code ?? 'unknown'}` +
+          (responseCode ? ` smtp=${responseCode}` : '') +
+          (command ? ` command=${command}` : ''),
+      );
+      // Unchanged behaviour: the caller still sees the failure.
+      throw err;
+    }
+    this.logger.log(`OTP email sent: purpose=${purpose}`);
   }
 }

@@ -5,6 +5,7 @@ import {
   NOTIFICATION_CHANNEL_STRATEGIES,
   NotificationChannelStrategy,
   RecipientUnreachableError,
+  RenderedNotification,
 } from '../channels/notification-channel.strategy';
 import { Notification } from '../entities/notification.entity';
 import { NotificationsRepository } from '../repositories/notifications.repository';
@@ -63,7 +64,10 @@ export function nextAttemptAt(now: Date, attemptsSoFar: number): Date {
 @Injectable()
 export class NotificationDispatcher {
   private readonly logger = new Logger(NotificationDispatcher.name);
-  private readonly strategies: Map<NotificationChannel, NotificationChannelStrategy>;
+  private readonly strategies: Map<
+    NotificationChannel,
+    NotificationChannelStrategy
+  >;
 
   constructor(
     @Inject(NOTIFICATION_CHANNEL_STRATEGIES)
@@ -80,7 +84,12 @@ export class NotificationDispatcher {
   ): Promise<DispatchSummary> {
     // Rows stay locked (SKIP LOCKED for other instances) until the batch is recorded.
     return this.dataSource.transaction(async (manager) => {
-      const summary: DispatchSummary = { sent: 0, skipped: 0, retrying: 0, failed: 0 };
+      const summary: DispatchSummary = {
+        sent: 0,
+        skipped: 0,
+        retrying: 0,
+        failed: 0,
+      };
       const due = await this.repository.claimDue(manager, now, limit);
       for (const batch of groupForDelivery(due)) {
         await this.deliver(manager, batch, now, summary);
@@ -97,20 +106,30 @@ export class NotificationDispatcher {
   ): Promise<void> {
     const first = batch[0];
     const ids = batch.map((n) => n.id);
+    // Ids, type and channel only: never the payload or the rendered text.
+    const label = `${first.type} via ${first.channel} (notifications ${ids.join(', ')})`;
 
     const strategy = this.strategies.get(first.channel);
-    const message = renderNotification(first.type, mergePayloads(batch));
+    // Rendering can throw on a malformed payload (e.g. an invalid date). It must
+    // fail this batch only: an exception escaping here would roll back the whole
+    // dispatch transaction, and batches already sent in it would be re-sent on
+    // every run.
+    let message: RenderedNotification | null;
+    let renderError: string | null = null;
+    try {
+      message = renderNotification(first.type, mergePayloads(batch));
+    } catch (err) {
+      message = null;
+      renderError = `Template failed: ${err instanceof Error ? err.message : 'unknown error'}`;
+    }
     if (!strategy || !message) {
-      // Configuration problem, not transient: don't retry.
-      await this.repository.recordFailure(
-        manager,
-        ids,
-        !strategy
-          ? `No delivery strategy for channel ${first.channel}`
-          : `No template for type ${first.type}`,
-        null,
-      );
+      // Configuration or data problem, not transient: don't retry.
+      const reason = !strategy
+        ? `No delivery strategy for channel ${first.channel}`
+        : (renderError ?? `No template for type ${first.type}`);
+      await this.repository.recordFailure(manager, ids, reason, null);
       summary.failed += batch.length;
+      this.logger.error(`${label} failed permanently: ${reason}`);
       return;
     }
 
@@ -122,6 +141,9 @@ export class NotificationDispatcher {
           `User has no ${first.channel} destination`,
         );
         summary.skipped += batch.length;
+        this.logger.log(
+          `${label} skipped: user has no ${first.channel} destination`,
+        );
         return;
       }
       await strategy.send(first.userId, message);
@@ -132,6 +154,7 @@ export class NotificationDispatcher {
       if (err instanceof RecipientUnreachableError) {
         await this.repository.markSkipped(manager, ids, reason);
         summary.skipped += batch.length;
+        this.logger.log(`${label} skipped: ${reason}`);
         return;
       }
       const attempts = first.attempts + 1;
@@ -142,11 +165,17 @@ export class NotificationDispatcher {
         reason,
         giveUp ? null : nextAttemptAt(now, attempts),
       );
-      if (giveUp) summary.failed += batch.length;
-      else summary.retrying += batch.length;
-      this.logger.warn(
-        `${first.type} via ${first.channel} failed (attempt ${attempts}/${MAX_ATTEMPTS}): ${reason}`,
-      );
+      if (giveUp) {
+        summary.failed += batch.length;
+        this.logger.error(
+          `${label} failed permanently after ${attempts} attempts: ${reason}`,
+        );
+      } else {
+        summary.retrying += batch.length;
+        this.logger.warn(
+          `${label} failed (attempt ${attempts}/${MAX_ATTEMPTS}), will retry: ${reason}`,
+        );
+      }
     }
   }
 }

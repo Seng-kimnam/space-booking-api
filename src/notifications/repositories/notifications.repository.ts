@@ -48,13 +48,18 @@ export class NotificationsRepository {
         scheduledAt,
         attempts: 0,
         lastError: null,
-        ...(payloadPatch ? { payload: () => 'payload || CAST(:patch AS jsonb)' } : {}),
+        ...(payloadPatch
+          ? { payload: () => 'payload || CAST(:patch AS jsonb)' }
+          : {}),
       })
-      .where('booking_id IN (:...bookingIds) AND type = :type AND status = :status', {
-        bookingIds,
-        type,
-        status: NotificationStatus.PENDING,
-      })
+      .where(
+        'booking_id IN (:...bookingIds) AND type = :type AND status = :status',
+        {
+          bookingIds,
+          type,
+          status: NotificationStatus.PENDING,
+        },
+      )
       .setParameter('patch', JSON.stringify(payloadPatch ?? {}))
       .execute();
   }
@@ -93,11 +98,17 @@ export class NotificationsRepository {
       .getMany();
   }
 
-  async markSent(manager: EntityManager, ids: string[], at: Date): Promise<void> {
-    await manager.getRepository(Notification).update(
-      { id: In(ids) },
-      { status: NotificationStatus.SENT, sentAt: at, lastError: null },
-    );
+  async markSent(
+    manager: EntityManager,
+    ids: string[],
+    at: Date,
+  ): Promise<void> {
+    await manager
+      .getRepository(Notification)
+      .update(
+        { id: In(ids) },
+        { status: NotificationStatus.SENT, sentAt: at, lastError: null },
+      );
   }
 
   async markSkipped(
@@ -107,7 +118,10 @@ export class NotificationsRepository {
   ): Promise<void> {
     await manager
       .getRepository(Notification)
-      .update({ id: In(ids) }, { status: NotificationStatus.SKIPPED, lastError: reason });
+      .update(
+        { id: In(ids) },
+        { status: NotificationStatus.SKIPPED, lastError: reason },
+      );
   }
 
   /** `retryAt` null = give up (FAILED); otherwise stay PENDING until retryAt. */

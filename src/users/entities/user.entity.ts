@@ -9,10 +9,12 @@ import {
 } from 'typeorm';
 import { Role } from '../../roles/entities/role.entity';
 
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  USER = 'USER',
-}
+import { UserRole } from '../../common/enums';
+
+// Defined once in common/enums. Re-exported only so the src/auth files that
+// still import it from here keep compiling; new code imports common/enums.
+export { UserRole };
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -24,7 +26,12 @@ export class User {
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   @Exclude()
   passwordHash: string | null;
 

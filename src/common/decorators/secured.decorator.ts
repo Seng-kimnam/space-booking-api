@@ -2,7 +2,7 @@ import { applyDecorators, UseGuards, UseInterceptors, UsePipes, ValidationPipe }
 import { AuthGuard } from '../../auth/auth.guard';
 import { Roles } from '../../auth/role.decorator';
 import { RolesInterceptor } from '../../auth/roles.interceptor';
-import { UserRole } from '../../users/entities/user.entity';
+import { UserRole } from '../enums';
 
 /**
  * JWT auth + role check + DTO validation in one decorator, the same stack the

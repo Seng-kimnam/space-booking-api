@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
   BookingEventType,
@@ -9,7 +9,11 @@ import { NotificationsService } from '../../notifications/services/notifications
 import { NO_SHOW_COUNTER } from '../bookings.ports';
 import type { NoShowCounterPort } from '../bookings.ports';
 import { BookingsRepository } from '../repositories/bookings.repository';
-import { BookingActivityService, BookingRoutingKey } from './booking-activity.service';
+import { Booking } from '../entities/booking.entity';
+import {
+  BookingActivityService,
+  BookingRoutingKey,
+} from './booking-activity.service';
 import { BookingQrService } from './booking-qr.service';
 
 const DEFAULT_BATCH = 100;
@@ -22,6 +26,10 @@ const DEFAULT_BATCH = 100;
  */
 @Injectable()
 export class BookingLifecycleService {
+  // Forwards to AppLogger (main.ts). The jobs log only counts; this logs which
+  // bookings changed, after commit, so no-shows and overdue seats are traceable.
+  private readonly logger = new Logger(BookingLifecycleService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly bookings: BookingsRepository,
@@ -36,10 +44,10 @@ export class BookingLifecycleService {
    * Counts a no-show (once per multi-seat booking), revokes QR codes, and
    * replaces pending alerts with BOOKING_EXPIRED. Returns how many expired.
    */
-  expireDue(now: Date, limit = DEFAULT_BATCH): Promise<number> {
-    return this.dataSource.transaction(async (manager) => {
+  async expireDue(now: Date, limit = DEFAULT_BATCH): Promise<number> {
+    const expired = await this.dataSource.transaction(async (manager) => {
       const due = await this.bookings.claimExpirable(manager, now, limit);
-      if (due.length === 0) return 0;
+      if (due.length === 0) return [];
       const ids = due.map((b) => b.id);
 
       await this.bookings.updateFields(manager, ids, {
@@ -71,8 +79,10 @@ export class BookingLifecycleService {
         routingKey: BookingRoutingKey.EXPIRED,
         actor: 'system',
       });
-      return due.length;
+      return due;
     });
+    this.logGroups('Booking expired (no-show)', expired);
+    return expired.length;
   }
 
   /**
@@ -80,16 +90,18 @@ export class BookingLifecycleService {
    * CHECKOUT_OVERDUE, with a FORGOTTEN_CHECKOUT alert. The seat still counts as
    * occupied now until the user checks out or an admin resolves it.
    */
-  markOverdue(now: Date, limit = DEFAULT_BATCH): Promise<number> {
-    return this.dataSource.transaction(async (manager) => {
+  async markOverdue(now: Date, limit = DEFAULT_BATCH): Promise<number> {
+    const overdue = await this.dataSource.transaction(async (manager) => {
       const due = await this.bookings.claimOverdue(manager, now, limit);
-      if (due.length === 0) return 0;
+      if (due.length === 0) return [];
       const ids = due.map((b) => b.id);
 
       await this.bookings.updateFields(manager, ids, {
         status: BookingStatus.CHECKOUT_OVERDUE,
       });
-      await this.notifications.skipPending(manager, ids, [NotificationType.CHECKOUT_REMINDER]);
+      await this.notifications.skipPending(manager, ids, [
+        NotificationType.CHECKOUT_REMINDER,
+      ]);
       await this.notifications.schedule(
         manager,
         due.map((b) => ({
@@ -106,7 +118,23 @@ export class BookingLifecycleService {
         routingKey: BookingRoutingKey.CHECKOUT_OVERDUE,
         actor: 'system',
       });
-      return due.length;
+      return due;
     });
+    this.logGroups('Booking checkout overdue', overdue);
+    return overdue.length;
+  }
+
+  /** One line per booking group (a multi-seat booking is one user action). */
+  private logGroups(event: string, bookings: Booking[]): void {
+    const groups = new Map<string, Booking[]>();
+    for (const b of bookings) {
+      const key = b.groupId ?? b.id;
+      groups.set(key, [...(groups.get(key) ?? []), b]);
+    }
+    for (const [group, rows] of groups) {
+      this.logger.log(
+        `${event}: group=${group} bookings=${rows.map((b) => b.id).join(',')} user=${rows[0].userId}`,
+      );
+    }
   }
 }

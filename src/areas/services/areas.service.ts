@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -20,6 +21,9 @@ const AREA_NOT_FOUND = 'Area not found';
 
 @Injectable()
 export class AreasService {
+  // Forwards to AppLogger (main.ts). Admin writes are logged as an audit trail.
+  private readonly logger = new Logger(AreasService.name);
+
   constructor(
     @InjectRepository(Area) private readonly areas: Repository<Area>,
     private readonly places: PlacesService,
@@ -48,7 +52,7 @@ export class AreasService {
   /** Admins may add areas to inactive places, not to deleted ones. */
   async create(placeId: string, dto: CreateAreaDto): Promise<Area> {
     await this.places.getPlace(placeId);
-    return this.save(
+    const area = await this.save(
       this.areas.create({
         placeId,
         name: dto.name,
@@ -57,6 +61,10 @@ export class AreasService {
         isActive: dto.isActive ?? undefined,
       }),
     );
+    this.logger.log(
+      `Area created: id=${area.id} place=${placeId} name=${area.name}`,
+    );
+    return area;
   }
 
   async update(areaId: string, dto: UpdateAreaDto): Promise<Area> {
@@ -65,12 +73,19 @@ export class AreasService {
     if (dto.floor !== undefined) area.floor = dto.floor;
     if (dto.description !== undefined) area.description = dto.description;
     if (dto.isActive !== undefined) area.isActive = dto.isActive;
-    return this.save(area);
+    const saved = await this.save(area);
+    const changed = Object.keys(dto).filter(
+      (k) => dto[k as keyof UpdateAreaDto] !== undefined,
+    );
+    this.logger.log(
+      `Area updated: id=${areaId} fields=${changed.join(',') || 'none'}`,
+    );
+    return saved;
   }
 
   /** Soft delete. 409 while non-deleted seats are still assigned to the area. */
   async softDelete(areaId: string): Promise<void> {
-    await this.findForAdmin(areaId);
+    const area = await this.findForAdmin(areaId);
     // shortcut: reads seats directly; areas can't import seats (seats -> areas in
     // docs/project-structure.md section 3). A soft delete skips the seats FK, so
     // without this a seat would keep pointing at a deleted area.
@@ -78,11 +93,16 @@ export class AreasService {
       'SELECT 1 FROM seats WHERE area_id = $1 AND deleted_at IS NULL LIMIT 1',
       [areaId],
     );
-    if (inUse)
+    if (inUse) {
+      this.logger.warn(
+        `Area delete rejected: seats still assigned (id=${areaId})`,
+      );
       throw new ConflictException(
         'Area still has seats; move or delete them first',
       );
+    }
     await this.areas.softDelete(areaId);
+    this.logger.log(`Area deleted: id=${areaId} name=${area.name}`);
   }
 
   /** Not deleted, in a place that isn't deleted (inactive is fine for admins). */
