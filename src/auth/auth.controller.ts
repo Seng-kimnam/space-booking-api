@@ -4,6 +4,7 @@ import {
   Get,
   Patch,
   Post,
+  Param,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -36,7 +37,12 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.authService.registerUser(dto.email, dto.password, dto.name);
+    return this.authService.registerUser(
+      dto.email,
+      dto.password,
+      dto.name,
+      dto.roleId,
+    );
   }
 
   @Post('verify-email')
@@ -102,9 +108,37 @@ export class AuthController {
     return this.authService.logout(dto.refreshToken);
   }
 
-  @Post('register-admin')
-  registerAdmin(@Body() dto: RegisterDto) {
-    return this.authService.createAdminUser(dto.email, dto.password, dto.name);
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @UseInterceptors(RolesInterceptor)
+  @Roles(UserRole.SUPER_ADMIN)
+  @Get('admin-requests')
+  listAdminRequests(@CurrentUser() user: JwtUser) {
+    return this.authService.listAdminRequests(user.sub);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @UseInterceptors(RolesInterceptor)
+  @Roles(UserRole.SUPER_ADMIN)
+  @Post('admin-requests/:userId/approve')
+  approveAdminRequest(
+    @CurrentUser() user: JwtUser,
+    @Param('userId') userId: string,
+  ) {
+    return this.authService.approveAdminRequest(user.sub, userId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @UseInterceptors(RolesInterceptor)
+  @Roles(UserRole.SUPER_ADMIN)
+  @Post('admin-requests/:userId/reject')
+  rejectAdminRequest(
+    @CurrentUser() user: JwtUser,
+    @Param('userId') userId: string,
+  ) {
+    return this.authService.rejectAdminRequest(user.sub, userId);
   }
 
   @ApiBearerAuth()

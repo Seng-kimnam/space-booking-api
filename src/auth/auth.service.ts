@@ -1,6 +1,8 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,7 +10,11 @@ import { JwtService } from '@nestjs/jwt';
 import { IsNull, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
-import { User, UserRole } from '../users/entities/user.entity';
+import {
+  AdminRequestStatus,
+  User,
+  UserRole,
+} from '../users/entities/user.entity';
 import { Role } from '../roles/entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserOtp } from '../users/entities/user-otp.entity';
@@ -42,51 +48,56 @@ export class AuthService {
     private readonly mailService: MailService,
   ) {}
 
-  async registerUser(email: string, password: string, name: string) {
+  async registerUser(
+    email: string,
+    password: string,
+    name: string,
+    roleId: number,
+  ) {
     const existing = await this.usersRepository.findOneBy({ email });
     if (existing) {
       throw new ConflictException('Email is already registered');
     }
 
-    const userRole = await this.rolesRepository.findOneBy({ name: UserRole.USER });
-    if (!userRole) {
-      throw new ConflictException('Default user role is not configured');
+    const role = await this.rolesRepository.findOneBy({ id: roleId });
+    if (!role) {
+      throw new ConflictException('Requested role is not configured');
     }
 
+    if (role.name === UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'SUPER_ADMIN accounts can only be created by a SUPER_ADMIN',
+      );
+    }
+
+    if (role.name !== UserRole.USER && role.name !== UserRole.ADMIN) {
+      throw new ForbiddenException('This role cannot be used for registration');
+    }
+
+    const isAdminRequest = role.name === UserRole.ADMIN;
     const user = await this.usersRepository.save(
       this.usersRepository.create({
         email,
         passwordHash: await bcrypt.hash(password, 10),
         name,
-        role: userRole,
+        role,
+        emailVerifiedAt: isAdminRequest ? new Date() : null,
+        adminRequestStatus: isAdminRequest
+          ? AdminRequestStatus.PENDING
+          : null,
+        adminRequestedAt: isAdminRequest ? new Date() : null,
+        adminApprovedAt: null,
+        adminApprovedById: null,
       }),
     );
-    await this.issueOtp(user, OtpPurpose.EMAIL_VERIFY);
+    if (!isAdminRequest) {
+      await this.issueOtp(user, OtpPurpose.EMAIL_VERIFY);
+    }
     return {
-      message: 'Registration successful. Check your email for the OTP.',
+      message: isAdminRequest
+        ? 'Admin registration submitted for Super Admin approval.'
+        : 'Registration successful. Check your email for the OTP.',
     };
-  }
-
-  async createAdminUser(email: string, password: string, name: string) {
-    const existing = await this.usersRepository.findOneBy({ email });
-    if (existing) {
-      throw new ConflictException('Email is already registered');
-    }
-
-    const adminRole = await this.rolesRepository.findOneBy({ name: UserRole.ADMIN });
-    if (!adminRole) {
-      throw new ConflictException('Admin role is not configured');
-    }
-
-    return this.usersRepository.save(
-      this.usersRepository.create({
-        email,
-        passwordHash: await bcrypt.hash(password, 10),
-        name,
-        role: adminRole,
-        emailVerifiedAt: new Date(),
-      }),
-    );
   }
 
   async verifyEmail(email: string, otp: string): Promise<{ message: string }> {
@@ -119,7 +130,63 @@ export class AuthService {
     if (!user.emailVerifiedAt) {
       throw new UnauthorizedException('Email address is not verified');
     }
+    if (user.adminRequestStatus === AdminRequestStatus.PENDING) {
+      throw new ForbiddenException('Admin registration is awaiting approval');
+    }
     return this.issueSession(user);
+  }
+
+  async listAdminRequests(actorId: string): Promise<
+    Array<{
+      id: string;
+      email: string;
+      name: string;
+      requestedAt: Date | null;
+      status: AdminRequestStatus | null;
+    }>
+  > {
+    await this.assertSuperAdmin(actorId);
+    const users = await this.usersRepository.find({
+      where: { adminRequestStatus: AdminRequestStatus.PENDING },
+      order: { adminRequestedAt: 'ASC' },
+    });
+    return users.map((user) => this.toAdminRequestResponse(user));
+  }
+
+  async approveAdminRequest(
+    actorId: string,
+    userId: string,
+  ): Promise<{ message: string }> {
+    await this.assertSuperAdmin(actorId);
+    const user = await this.findPendingAdminRequest(userId);
+    const adminRole = await this.rolesRepository.findOneBy({
+      name: UserRole.ADMIN,
+    });
+    if (!adminRole) {
+      throw new ConflictException('Admin role is not configured');
+    }
+
+    await this.usersRepository.update(user.id, {
+      role: adminRole,
+      adminRequestStatus: AdminRequestStatus.APPROVED,
+      adminApprovedAt: new Date(),
+      adminApprovedById: actorId,
+    });
+    return { message: 'Admin registration approved successfully' };
+  }
+
+  async rejectAdminRequest(
+    actorId: string,
+    userId: string,
+  ): Promise<{ message: string }> {
+    await this.assertSuperAdmin(actorId);
+    const user = await this.findPendingAdminRequest(userId);
+    await this.usersRepository.update(user.id, {
+      adminRequestStatus: AdminRequestStatus.REJECTED,
+      adminApprovedAt: null,
+      adminApprovedById: null,
+    });
+    return { message: 'Admin registration rejected successfully' };
   }
 
   async refresh(rawToken: string) {
@@ -266,6 +333,34 @@ export class AuthService {
       purpose === OtpPurpose.EMAIL_VERIFY ? 'EMAIL_VERIFY' : 'PASSWORD_RESET',
       otp,
     );
+  }
+
+  private async assertSuperAdmin(actorId: string): Promise<void> {
+    const actor = await this.usersRepository.findOneBy({ id: actorId });
+    if (!actor || actor.role.name !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Super Admin access required');
+    }
+  }
+
+  private async findPendingAdminRequest(userId: string): Promise<User> {
+    const user = await this.usersRepository.findOneBy({ id: userId });
+    if (
+      !user ||
+      user.adminRequestStatus !== AdminRequestStatus.PENDING
+    ) {
+      throw new NotFoundException('Pending admin registration not found');
+    }
+    return user;
+  }
+
+  private toAdminRequestResponse(user: User) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      requestedAt: user.adminRequestedAt,
+      status: user.adminRequestStatus,
+    };
   }
 
   private async consumeOtp(

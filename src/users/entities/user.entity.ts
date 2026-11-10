@@ -11,7 +11,14 @@ import { Role } from '../../roles/entities/role.entity';
 
 export enum UserRole {
   ADMIN = 'ADMIN',
+  SUPER_ADMIN = 'SUPER_ADMIN',
   USER = 'USER',
+}
+
+export enum AdminRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
 }
 @Entity('users')
 export class User {
@@ -43,4 +50,21 @@ export class User {
   @ManyToOne(() => Role, { eager: true, nullable: false })
   @JoinColumn({ name: 'role_id' })
   role: Role;
+
+  @Column({
+    name: 'admin_request_status',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  adminRequestStatus: AdminRequestStatus | null;
+
+  @Column({ name: 'admin_requested_at', type: 'timestamptz', nullable: true })
+  adminRequestedAt: Date | null;
+
+  @Column({ name: 'admin_approved_at', type: 'timestamptz', nullable: true })
+  adminApprovedAt: Date | null;
+
+  @Column({ name: 'admin_approved_by', type: 'uuid', nullable: true })
+  adminApprovedById: string | null;
 }

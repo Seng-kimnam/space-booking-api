@@ -71,11 +71,15 @@ CREATE TABLE roles (
   updated_at         timestamptz  NOT NULL DEFAULT now()
 );
 
-INSERT INTO roles (name) VALUES ('ADMIN'), ('USER');
+INSERT INTO roles (name) VALUES ('SUPER_ADMIN'), ('ADMIN'), ('USER');
 
 CREATE TABLE users (
   id                 uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
   role_id            integer      NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+  admin_request_status varchar(20),
+  admin_requested_at  timestamptz,
+  admin_approved_at   timestamptz,
+  admin_approved_by   uuid         REFERENCES users(id) ON DELETE SET NULL,
   name               varchar(100) NOT NULL,
   email              citext       NOT NULL,
   password_hash      varchar(255),                       -- NULL = social sign-in only
@@ -88,6 +92,10 @@ CREATE TABLE users (
   deleted_at         timestamptz,
   CONSTRAINT users_email_uk          UNIQUE (email),
   CONSTRAINT users_no_show_count_chk CHECK (no_show_count >= 0)
+  ,CONSTRAINT users_admin_request_status_chk CHECK (
+    admin_request_status IS NULL OR
+    admin_request_status IN ('PENDING', 'APPROVED', 'REJECTED')
+  )
 );
 -- "At least one sign-in method" (password or auth_identities row) is cross-table:
 -- enforced in the auth service, not here.

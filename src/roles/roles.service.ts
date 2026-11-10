@@ -12,7 +12,7 @@ import { Role } from './entities/role.entity';
 // Postgres error code for a unique constraint violation
 const UNIQUE_VIOLATION = '23505';
 // The app depends on these two roles, so they can't be deleted
-const PROTECTED_ROLES = ['ADMIN', 'USER'];
+const PROTECTED_ROLES = ['SUPER_ADMIN', 'ADMIN', 'USER'];
 
 @Injectable()
 export class RolesService {

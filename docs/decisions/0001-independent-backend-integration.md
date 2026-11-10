@@ -1,4 +1,4 @@
-# ADR 0001: Independent backend, two roles, sync + async integration
+# ADR 0001: Independent backend, role-based access, sync + async integration
 
 - **Status:** Proposed (needs team review)
 - **Date:** 2026-11-07
@@ -10,7 +10,7 @@ The first ERD (6 tables) was written for a library-focused booking app with plac
 ## Decisions
 
 1. **Generic domain.** The main entity is `places` (with `type` LIBRARY / CAFE / COWORKING / OTHER), not `libraries`. API paths use `/places`.
-2. **Two roles only: `ADMIN`, `USER`.** Stored as an enum on `users.role`; the `roles` table and `users.place_id` are dropped. Roles that belong to other systems are not modelled now; a phase-2 `external_identities` table can carry them.
+2. **Application roles are `SUPER_ADMIN`, `ADMIN`, and `USER`.** They are stored in the `roles` table and referenced by `users.role_id`. Roles that belong to other systems are not modelled now; a phase-2 `external_identities` table can carry them.
 3. **Policies per place, not per role.** Grace period (15 min), reminder offsets, duration and advance limits live in `booking_policies`.
 4. **Sync integration over HTTP.** Other services call our REST API authenticated as `api_clients` (hashed API key + scopes). Bookings record `client_id`.
 5. **Async integration over RabbitMQ with a transactional outbox.** Domain changes insert into `outbox_events` in the same DB transaction; a relay publishes to the topic exchange `space-booking.events` (routing keys like `booking.created`, `booking.expired`). Consumed messages (and Telegram webhook updates) are deduplicated through `inbox_events`. Delivery is at-least-once; every consumer is idempotent.
