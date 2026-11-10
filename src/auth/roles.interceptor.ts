@@ -37,7 +37,10 @@ export class RolesInterceptor implements NestInterceptor {
       );
     }
 
-    const hasRole = () => requiredRoles.includes(user.role as UserRole);
+    const hasRole = () =>
+      requiredRoles.includes(user.role as UserRole) ||
+      (user.role === UserRole.SUPER_ADMIN &&
+        requiredRoles.includes(UserRole.ADMIN));
     if (!hasRole()) {
       throw new ForbiddenException('Access denied: Insufficient privileges.');
     }

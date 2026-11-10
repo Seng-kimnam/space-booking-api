@@ -2,12 +2,12 @@
 
 Based on the team draft v1.0 (4 Nov 2026), with `/libraries` renamed to `/places` (the app is generic; a library is one place type). All paths are relative to `/api/v1`.
 
-**Access:** Public = no login. USER / ADMIN = JWT with that role. Client = `api_clients` key with the listed scope (sync integration). Telegram = Telegram calling with the webhook secret header.
+**Access:** Public = no login. USER / ADMIN = JWT with that role. SUPER_ADMIN manages admin approvals. Client = `api_clients` key with the listed scope (sync integration). Telegram = Telegram calling with the webhook secret header.
 
 ## 1. Authentication
 | # | Method | Endpoint | Description | Access |
 |---|---|---|---|---|
-| 1 | POST | /auth/register | Register account | Public |
+| 1 | POST | /auth/register | Register account with roleId; ADMIN requires SUPER_ADMIN approval | Public |
 | 2 | POST | /auth/verify-email | Verify email with OTP | Public |
 | 3 | POST | /auth/resend-otp | Resend verification OTP | Public |
 | 4 | POST | /auth/login | Login | Public |
@@ -15,6 +15,9 @@ Based on the team draft v1.0 (4 Nov 2026), with `/libraries` renamed to `/places
 | 6 | POST | /auth/forgot-password | Send password reset OTP | Public |
 | 7 | POST | /auth/reset-password | Reset password | Public |
 | 8 | POST | /auth/logout | Logout (revoke refresh token) | USER, ADMIN |
+| 8b | GET | /auth/admin-requests | List pending admin registrations | SUPER_ADMIN |
+| 8c | POST | /auth/admin-requests/:userId/approve | Approve a pending admin registration | SUPER_ADMIN |
+| 8d | POST | /auth/admin-requests/:userId/reject | Reject a pending admin registration | SUPER_ADMIN |
 | 9 | GET | /auth/me | Current user profile | USER, ADMIN |
 | 10 | PATCH | /auth/change-password | Change password | USER, ADMIN |
 | 11 | GET | /auth/oauth/:provider | Start sign-in: 302 redirect to Google / Facebook consent screen | Public |

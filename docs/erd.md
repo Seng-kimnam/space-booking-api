@@ -50,13 +50,17 @@ erDiagram
         timestamptz email_verified_at
         boolean is_active
         int no_show_count
+        varchar admin_request_status "PENDING | APPROVED | REJECTED"
+        timestamptz admin_requested_at
+        timestamptz admin_approved_at
+        uuid admin_approved_by FK
         timestamptz created_at
         timestamptz updated_at
         timestamptz deleted_at
     }
     ROLES {
         serial id PK
-        varchar name UK "ADMIN | USER"
+        varchar name UK "SUPER_ADMIN | ADMIN | USER"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -556,7 +560,7 @@ UNIQUE `(source, message_id)`: insert first; on conflict the message was already
 
 | Enum | Values |
 |---|---|
-| role name | `ADMIN`, `USER` (seeded in `roles`) |
+| role name | `SUPER_ADMIN`, `ADMIN`, `USER` (seeded in `roles`) |
 | auth_provider | `GOOGLE`, `FACEBOOK` |
 | otp_purpose | `EMAIL_VERIFY`, `PASSWORD_RESET`, `TELEGRAM_LINK` |
 | place_type | `LIBRARY`, `CAFE`, `COWORKING`, `OTHER` |

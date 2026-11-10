@@ -108,7 +108,7 @@ telegram_accounts, notifications                                    -- notificat
 api_clients, outbox_events, inbox_events                            -- integration
 ```
 
-- `users.role_id` references `roles.id`; the seeded `USER` role is the default for new users.
+- `users.role_id` references `roles.id`; seeded roles are `SUPER_ADMIN | ADMIN | USER`, and `USER` is the default for new users.
 - `users.password_hash` is NULL for users who only sign in with Google/Facebook. Social accounts live in `auth_identities`, matched on `(provider, provider_user_id)`, never on email. Provider tokens are not stored.
 - Booking `status`: `PENDING | CHECKED_IN | CHECKOUT_OVERDUE | COMPLETED | CANCELLED | EXPIRED`.
 - Booking `source`: `APP | API_CLIENT | ADMIN`. `bookings.user_id` is always set (no walk-ins).
