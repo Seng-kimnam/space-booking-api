@@ -8,7 +8,7 @@ describe('AuthService', () => {
     id: 'user-id',
     email: 'user@example.com',
     name: 'Test User',
-    role: UserRole.USER,
+    role: { name: UserRole.USER },
     emailVerifiedAt: new Date(),
     passwordHash: '',
   };
@@ -22,6 +22,7 @@ describe('AuthService', () => {
     const service = new AuthService(
       { findOneBy: jest.fn().mockResolvedValue(user) } as never,
       refreshTokensRepository as never,
+      {} as never,
       {} as never,
       { signAsync: jest.fn().mockResolvedValue('access-token') } as never,
       {} as never,
@@ -58,6 +59,7 @@ describe('AuthService', () => {
       userOtpsRepository as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await expect(
@@ -72,5 +74,27 @@ describe('AuthService', () => {
       expect.objectContaining({ emailVerifiedAt: expect.any(Date) }),
     );
     expect(OtpPurpose.EMAIL_VERIFY).toBe('EMAIL_VERIFY');
+  });
+
+  it('revokes the refresh token and returns a logout message', async () => {
+    const refreshTokensRepository = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const service = new AuthService(
+      {} as never,
+      refreshTokensRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(service.logout('refresh-token')).resolves.toEqual({
+      message: 'Logout successful',
+    });
+    expect(refreshTokensRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ revokedAt: expect.anything() }),
+      { revokedAt: expect.any(Date) },
+    );
   });
 });

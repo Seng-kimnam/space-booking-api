@@ -9,6 +9,7 @@ import { IsNull, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { User, UserRole } from '../users/entities/user.entity';
+import { Role } from '../roles/entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserOtp } from '../users/entities/user-otp.entity';
 import { OtpPurpose } from '../common/enums';
@@ -35,6 +36,8 @@ export class AuthService {
     private readonly refreshTokensRepository: Repository<RefreshToken>,
     @InjectRepository(UserOtp)
     private readonly userOtpsRepository: Repository<UserOtp>,
+    @InjectRepository(Role)
+    private readonly rolesRepository: Repository<Role>,
     private readonly jwtService: JwtService,
     private readonly mailService: MailService,
   ) {}
@@ -45,11 +48,17 @@ export class AuthService {
       throw new ConflictException('Email is already registered');
     }
 
+    const userRole = await this.rolesRepository.findOneBy({ name: UserRole.USER });
+    if (!userRole) {
+      throw new ConflictException('Default user role is not configured');
+    }
+
     const user = await this.usersRepository.save(
       this.usersRepository.create({
         email,
         passwordHash: await bcrypt.hash(password, 10),
         name,
+        role: userRole,
       }),
     );
     await this.issueOtp(user, OtpPurpose.EMAIL_VERIFY);
@@ -64,12 +73,17 @@ export class AuthService {
       throw new ConflictException('Email is already registered');
     }
 
+    const adminRole = await this.rolesRepository.findOneBy({ name: UserRole.ADMIN });
+    if (!adminRole) {
+      throw new ConflictException('Admin role is not configured');
+    }
+
     return this.usersRepository.save(
       this.usersRepository.create({
         email,
         passwordHash: await bcrypt.hash(password, 10),
         name,
-        role: UserRole.ADMIN,
+        role: adminRole,
         emailVerifiedAt: new Date(),
       }),
     );
@@ -133,11 +147,12 @@ export class AuthService {
     return session;
   }
 
-  async logout(rawToken: string): Promise<void> {
+  async logout(rawToken: string): Promise<{ message: string }> {
     await this.refreshTokensRepository.update(
       { tokenHash: this.hashToken(rawToken), revokedAt: IsNull() },
       { revokedAt: new Date() },
     );
+    return { message: 'Logout successful' };
   }
 
   async getProfile(userId: string): Promise<AuthUser> {
@@ -203,7 +218,7 @@ export class AuthService {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: user.role.name as UserRole,
       emailVerifiedAt: user.emailVerifiedAt,
     };
   }
@@ -212,7 +227,7 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role.name as UserRole,
     });
     const refreshToken = randomUUID() + randomUUID();
     await this.refreshTokensRepository.save(

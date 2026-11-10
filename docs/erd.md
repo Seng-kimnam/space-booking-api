@@ -4,11 +4,11 @@ Source of truth for the schema. Any schema change must update this file, `docs/s
 
 **Database:** PostgreSQL 17. Extensions: `btree_gist` (exclusion constraint), `citext` (case-insensitive email), `pgcrypto` (`gen_random_uuid()`).
 
-**Tables (18):**
+**Tables (19):**
 
 | Group | Tables |
 |---|---|
-| Auth & users | `users`, `auth_identities`, `user_otps`, `refresh_tokens` |
+| Auth & users | `roles`, `users`, `auth_identities`, `user_otps`, `refresh_tokens` |
 | Places & seats | `places`, `place_opening_hours`, `place_closures`, `booking_policies`, `areas`, `seats` |
 | Bookings | `bookings`, `booking_events`, `booking_qr_tokens` |
 | Notifications | `telegram_accounts`, `notifications` |
@@ -20,6 +20,7 @@ The app is an **independent** space-booking backend. Other apps and services int
 
 ```mermaid
 erDiagram
+    ROLES ||--o{ USERS : "assigned to"
     USERS ||--o{ AUTH_IDENTITIES : "signs in via (Google, Facebook)"
     USERS ||--o{ USER_OTPS : "verifies with"
     USERS ||--o{ REFRESH_TOKENS : "signs in with"
@@ -41,7 +42,7 @@ erDiagram
 
     USERS {
         uuid id PK
-        user_role role "ADMIN | USER"
+        int role_id FK "defaults to USER role"
         varchar name
         citext email UK
         varchar password_hash "NULL = social login only"
@@ -52,6 +53,12 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
         timestamptz deleted_at
+    }
+    ROLES {
+        serial id PK
+        varchar name UK "ADMIN | USER"
+        timestamptz created_at
+        timestamptz updated_at
     }
     AUTH_IDENTITIES {
         uuid id PK
@@ -285,7 +292,7 @@ Unless stated, `id` is `uuid PK DEFAULT gen_random_uuid()`, `created_at`/`update
 ### users
 | Column | Type | Constraints |
 |---|---|---|
-| role | user_role | NOT NULL, default `USER` |
+| role_id | integer | FK to `roles.id`, NOT NULL, default `USER` |
 | name | varchar(100) | NOT NULL |
 | email | citext | NOT NULL, UNIQUE |
 | password_hash | varchar(255) | NULL for users who only sign in with Google/Facebook; never returned or logged |
@@ -549,7 +556,7 @@ UNIQUE `(source, message_id)`: insert first; on conflict the message was already
 
 | Enum | Values |
 |---|---|
-| user_role | `ADMIN`, `USER` |
+| role name | `ADMIN`, `USER` (seeded in `roles`) |
 | auth_provider | `GOOGLE`, `FACEBOOK` |
 | otp_purpose | `EMAIL_VERIFY`, `PASSWORD_RESET`, `TELEGRAM_LINK` |
 | place_type | `LIBRARY`, `CAFE`, `COWORKING`, `OTHER` |
