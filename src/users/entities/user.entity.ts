@@ -3,8 +3,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { Role } from '../../roles/entities/role.entity';
 
 export enum UserRole {
   ADMIN = 'ADMIN',
@@ -37,11 +40,7 @@ export class User {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  // Foreign keys only. No imports of Role/Place, so no conflicts with teammates' entities.
-  @Column({
-    type: 'enum',
-    enum: UserRole,
-    default: UserRole.USER,
-  })
-  role: UserRole;
+  @ManyToOne(() => Role, { eager: true, nullable: false })
+  @JoinColumn({ name: 'role_id' })
+  role: Role;
 }

@@ -95,12 +95,12 @@ npm run lint && npm run build && npm test && npm run test:e2e
 
 If a command above doesn't exist yet, say so and propose adding it. Don't silently substitute.
 
-## 5. Data model (18 tables)
+## 5. Data model (19 tables)
 
 `docs/erd.md` is the full schema (columns, constraints, indexes). Do not add tables without team agreement and an ERD update.
 
 ```
-users, auth_identities, user_otps, refresh_tokens                  -- auth
+roles, users, auth_identities, user_otps, refresh_tokens            -- auth
 places, place_opening_hours, place_closures, booking_policies,     -- places & seats
   areas, seats
 bookings, booking_events, booking_qr_tokens                         -- bookings
@@ -108,7 +108,7 @@ telegram_accounts, notifications                                    -- notificat
 api_clients, outbox_events, inbox_events                            -- integration
 ```
 
-- `users.role`: `ADMIN | USER` (enum on `users`, no roles table).
+- `users.role_id` references `roles.id`; the seeded `USER` role is the default for new users.
 - `users.password_hash` is NULL for users who only sign in with Google/Facebook. Social accounts live in `auth_identities`, matched on `(provider, provider_user_id)`, never on email. Provider tokens are not stored.
 - Booking `status`: `PENDING | CHECKED_IN | CHECKOUT_OVERDUE | COMPLETED | CANCELLED | EXPIRED`.
 - Booking `source`: `APP | API_CLIENT | ADMIN`. `bookings.user_id` is always set (no walk-ins).
