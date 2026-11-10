@@ -169,7 +169,7 @@ The webhook checks the `X-Telegram-Bot-Api-Secret-Token` header, records every `
 
 ## 9. Async events (RabbitMQ, not HTTP)
 
-Published to topic exchange `space-booking.events` from `outbox_events`. Payloads never contain secrets.
+Published to topic exchange `space-booking.events` from `outbox_events`. Payloads never contain secrets. Message envelope, naming, versioning and delivery rules: `docs/integration/messaging-contract.md` (proposed).
 
 | Routing key | When |
 |---|---|

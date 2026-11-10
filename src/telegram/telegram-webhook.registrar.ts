@@ -24,18 +24,23 @@ export class TelegramWebhookRegistrar implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     if (!this.config.webhookUrl || !this.bot.isConfigured) {
-      this.logger.log('Telegram webhook not registered (bot token or URL not set)');
+      this.logger.log(
+        'Telegram webhook not registered (bot token or URL not set)',
+      );
       return;
     }
     if (!this.config.webhookSecret) {
-      this.logger.warn('TELEGRAM_WEBHOOK_SECRET is empty; webhook not registered');
+      this.logger.warn(
+        'TELEGRAM_WEBHOOK_SECRET is empty; webhook not registered',
+      );
       return;
     }
     try {
-      await this.bot.setWebhook(this.config.webhookUrl, this.config.webhookSecret, [
-        'message',
-        'my_chat_member',
-      ]);
+      await this.bot.setWebhook(
+        this.config.webhookUrl,
+        this.config.webhookSecret,
+        ['message', 'my_chat_member'],
+      );
       this.logger.log('Telegram webhook registered');
     } catch (err) {
       // Don't block startup: alerts are queued in `notifications` and retried.

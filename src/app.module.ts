@@ -3,7 +3,11 @@ import { AuthModule } from './auth/auth.module';
 import { ConfigModule, ConfigType } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { configurations, databaseConfig } from './configuration';
+import {
+  configurations,
+  databaseConfig,
+  validateEnv,
+} from './configuration';
 import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { PlacesModule } from './places/places.module';
@@ -18,7 +22,12 @@ import { TelegramModule } from './telegram/telegram.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, load: configurations }),
+    // validate: the app refuses to start with a missing or invalid env var.
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: configurations,
+      validate: validateEnv,
+    }),
     TypeOrmModule.forRootAsync({
       inject: [databaseConfig.KEY],
       useFactory: (db: ConfigType<typeof databaseConfig>) => db,

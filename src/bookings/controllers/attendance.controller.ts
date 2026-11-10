@@ -11,7 +11,7 @@ import {
 import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
 import { Secured } from '../../common/decorators/secured.decorator';
 import { QrPurpose } from '../../common/enums';
-import { UserRole } from '../../users/entities/user.entity';
+import { UserRole } from '../../common/enums';
 import type { AuthUser } from '../../common/types/auth-user';
 import { ScanQrDto } from '../dto/booking-request.dto';
 import { AttendanceResponseDto } from '../dto/booking-response.dto';

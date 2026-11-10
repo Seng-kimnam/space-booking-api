@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,8 +18,11 @@ import { SeatStatus } from '../../common/enums';
 import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { SeatPageResponseDto, toSeatResponse } from '../dto/seat.response.dto';
+import { PlacesService } from '../../places/services/places.service';
 
-// shortcut: reads places directly until PlacesService exists; switch to it when the places module lands.
+// Seat queries filter on their place inside the same SQL (one round trip, and
+// the filter composes with pagination), so this stays a subquery rather than a
+// PlacesService call. Single-place checks go through PlacesService.
 const PLACE_VISIBLE =
   'EXISTS (SELECT 1 FROM places p WHERE p.id = seat.place_id AND p.deleted_at IS NULL AND p.is_active)';
 
@@ -39,8 +43,13 @@ function mapDbError(err: unknown): unknown {
 
 @Injectable()
 export class SeatsService {
+  // Forwards to AppLogger (main.ts). Admin writes are logged as an audit trail;
+  // reads are not. Unexpected errors are logged by Nest's exception handler.
+  private readonly logger = new Logger(SeatsService.name);
+
   constructor(
     @InjectRepository(Seat) private readonly seats: Repository<Seat>,
+    private readonly places: PlacesService,
   ) {}
 
   list(query: SeatQueryDto): Promise<SeatPageResponseDto> {
@@ -51,11 +60,7 @@ export class SeatsService {
     placeId: string,
     query: PlaceSeatQueryDto,
   ): Promise<SeatPageResponseDto> {
-    const [visible] = await this.seats.manager.query(
-      `SELECT 1 FROM places WHERE id = $1 AND deleted_at IS NULL AND is_active`,
-      [placeId],
-    );
-    if (!visible) throw new NotFoundException('Place not found');
+    await this.places.getActivePlace(placeId); // 404 unless active, not deleted
     return this.page(query, placeId);
   }
 
@@ -89,13 +94,10 @@ export class SeatsService {
   }
 
   async create(placeId: string, dto: CreateSeatDto): Promise<Seat> {
-    const [place] = await this.seats.manager.query(
-      `SELECT 1 FROM places WHERE id = $1 AND deleted_at IS NULL`,
-      [placeId],
-    );
-    if (!place) throw new NotFoundException('Place not found');
+    // Admins may add seats to inactive places, not to deleted ones (404).
+    await this.places.getPlace(placeId);
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, placeId);
-    return this.save(
+    const seat = await this.save(
       this.seats.create({
         placeId,
         label: dto.label,
@@ -103,6 +105,10 @@ export class SeatsService {
         features: dto.features ?? {},
       }),
     );
+    this.logger.log(
+      `Seat created: id=${seat.id} place=${placeId} label=${seat.label}`,
+    );
+    return seat;
   }
 
   async update(seatId: string, dto: UpdateSeatDto): Promise<Seat> {
@@ -113,21 +119,38 @@ export class SeatsService {
     if (dto.features !== undefined) seat.features = dto.features;
     // The loaded relation would override areaId on save.
     delete (seat as Partial<Seat>).area;
-    return this.save(seat);
+    const saved = await this.save(seat);
+    const changed = Object.keys(dto).filter(
+      (k) => dto[k as keyof UpdateSeatDto] !== undefined,
+    );
+    this.logger.log(
+      `Seat updated: id=${seatId} fields=${changed.join(',') || 'none'}`,
+    );
+    return saved;
   }
 
   async setStatus(seatId: string, status: SeatStatus): Promise<Seat> {
     // shortcut: no seat.status_changed outbox event (api-endpoints.md:162) until messaging lands; add OutboxService.add in the same transaction then.
     // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
     const seat = await this.findAdmin(seatId);
+    // Same status: nothing to change, don't bump updated_at.
+    if (seat.status === status) return seat;
+    const previous = seat.status;
     seat.status = status;
-    return this.save(seat);
+    const saved = await this.save(seat);
+    this.logger.log(
+      `Seat status changed: id=${seatId} ${previous} -> ${status}`,
+    );
+    return saved;
   }
 
   async softDelete(seatId: string): Promise<void> {
     // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
-    await this.findAdmin(seatId);
+    const seat = await this.findAdmin(seatId);
     await this.seats.softDelete(seatId);
+    this.logger.log(
+      `Seat deleted: id=${seatId} place=${seat.placeId} label=${seat.label}`,
+    );
   }
 
   // Admins also see seats of inactive places, unlike public reads.
@@ -155,7 +178,11 @@ export class SeatsService {
     try {
       return await this.seats.save(seat);
     } catch (err) {
-      throw mapDbError(err);
+      const mapped = mapDbError(err);
+      // Expected client errors (duplicate label, wrong area): warn, not error.
+      if (mapped !== err && mapped instanceof Error)
+        this.logger.warn(`Seat write rejected: ${mapped.message}`);
+      throw mapped;
     }
   }
 

@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+import { TelegramApiError } from '../telegram/telegram-bot.client';
 import {
   NotificationChannel,
   NotificationStatus,
@@ -8,7 +10,10 @@ import {
   NotificationChannelStrategy,
   RecipientUnreachableError,
 } from './channels/notification-channel.strategy';
-import { escapeTelegramHtml, formatForTelegram } from './channels/telegram.channel';
+import {
+  escapeTelegramHtml,
+  formatForTelegram,
+} from './channels/telegram.channel';
 import { Notification } from './entities/notification.entity';
 import { NotificationsRepository } from './repositories/notifications.repository';
 import {
@@ -47,13 +52,19 @@ function row(overrides: Partial<Notification> = {}): Notification {
 
 describe('notification templates', () => {
   it('renders times in the place timezone', () => {
-    const msg = renderNotification(NotificationType.LATE_CHECKIN, payload(['A1']));
+    const msg = renderNotification(
+      NotificationType.LATE_CHECKIN,
+      payload(['A1']),
+    );
     expect(msg?.body).toContain('started at 10:00');
     expect(msg?.body).toContain('before 10:15');
   });
 
   it('lists every seat of a multi-seat booking', () => {
-    const msg = renderNotification(NotificationType.BOOKING_CONFIRMED, payload(['A1', 'A2']));
+    const msg = renderNotification(
+      NotificationType.BOOKING_CONFIRMED,
+      payload(['A1', 'A2']),
+    );
     expect(msg?.body).toContain('seats A1, A2');
   });
 
@@ -91,12 +102,16 @@ describe('notification templates', () => {
   });
 
   it('has no template for auth emails (owned by auth)', () => {
-    expect(renderNotification(NotificationType.EMAIL_VERIFY_OTP, payload(['A1']))).toBeNull();
+    expect(
+      renderNotification(NotificationType.EMAIL_VERIFY_OTP, payload(['A1'])),
+    ).toBeNull();
   });
 
   it('escapes HTML for Telegram', () => {
     expect(escapeTelegramHtml('<b>&')).toBe('&lt;b&gt;&amp;');
-    expect(formatForTelegram({ title: 'T<', body: 'B>' })).toBe('<b>T&lt;</b>\nB&gt;');
+    expect(formatForTelegram({ title: 'T<', body: 'B>' })).toBe(
+      '<b>T&lt;</b>\nB&gt;',
+    );
   });
 });
 
@@ -104,8 +119,12 @@ describe('NotificationsService.channelFor', () => {
   const service = new NotificationsService({} as NotificationsRepository);
 
   it('sends auth OTPs by email and booking alerts by Telegram', () => {
-    expect(service.channelFor(NotificationType.PASSWORD_RESET_OTP)).toBe(NotificationChannel.EMAIL);
-    expect(service.channelFor(NotificationType.LATE_CHECKIN)).toBe(NotificationChannel.TELEGRAM);
+    expect(service.channelFor(NotificationType.PASSWORD_RESET_OTP)).toBe(
+      NotificationChannel.EMAIL,
+    );
+    expect(service.channelFor(NotificationType.LATE_CHECKIN)).toBe(
+      NotificationChannel.TELEGRAM,
+    );
   });
 });
 
@@ -115,14 +134,20 @@ describe('dispatcher helpers', () => {
       row({ payload: payload(['A1'], 'g1') }),
       row({ payload: payload(['A2'], 'g1') }),
       row({ payload: payload(['B1'], 'g2') }),
-      row({ type: NotificationType.BOOKING_CONFIRMED, payload: payload(['A1'], 'g1') }),
+      row({
+        type: NotificationType.BOOKING_CONFIRMED,
+        payload: payload(['A1'], 'g1'),
+      }),
     ]);
     expect(batches.map((b) => b.length).sort()).toEqual([1, 1, 2]);
   });
 
   it('merges and sorts seat labels', () => {
     expect(
-      mergePayloads([row({ payload: payload(['A2']) }), row({ payload: payload(['A1']) })]).seatLabels,
+      mergePayloads([
+        row({ payload: payload(['A2']) }),
+        row({ payload: payload(['A1']) }),
+      ]).seatLabels,
     ).toEqual(['A1', 'A2']);
   });
 
@@ -140,7 +165,10 @@ describe('NotificationDispatcher', () => {
     transaction: (fn: (m: EntityManager) => Promise<unknown>) => fn(manager),
   } as unknown as DataSource;
 
-  function setup(due: Notification[], strategy: Partial<NotificationChannelStrategy>) {
+  function setup(
+    due: Notification[],
+    strategy: Partial<NotificationChannelStrategy>,
+  ) {
     const repo = {
       claimDue: jest.fn().mockResolvedValue(due),
       markSent: jest.fn(),
@@ -162,12 +190,21 @@ describe('NotificationDispatcher', () => {
   }
 
   it('sends one message for a whole group and marks every row SENT', async () => {
-    const rows = [row({ payload: payload(['A1']) }), row({ payload: payload(['A2']) })];
+    const rows = [
+      row({ payload: payload(['A1']) }),
+      row({ payload: payload(['A2']) }),
+    ];
     const { dispatcher, repo, telegram } = setup(rows, {});
     const summary = await dispatcher.dispatchDue(new Date());
     expect(telegram.send).toHaveBeenCalledTimes(1);
-    expect((telegram.send as jest.Mock).mock.calls[0][1].body).toContain('seats A1, A2');
-    expect(repo.markSent).toHaveBeenCalledWith(manager, rows.map((r) => r.id), expect.any(Date));
+    expect((telegram.send as jest.Mock).mock.calls[0][1].body).toContain(
+      'seats A1, A2',
+    );
+    expect(repo.markSent).toHaveBeenCalledWith(
+      manager,
+      rows.map((r) => r.id),
+      expect.any(Date),
+    );
     expect(summary.sent).toBe(2);
   });
 
@@ -182,7 +219,9 @@ describe('NotificationDispatcher', () => {
 
   it('skips when the recipient is unreachable (bot blocked)', async () => {
     const { dispatcher, repo } = setup([row()], {
-      send: jest.fn().mockRejectedValue(new RecipientUnreachableError('blocked')),
+      send: jest
+        .fn()
+        .mockRejectedValue(new RecipientUnreachableError('blocked')),
     });
     const summary = await dispatcher.dispatchDue(new Date());
     expect(repo.markSkipped).toHaveBeenCalled();
@@ -193,17 +232,32 @@ describe('NotificationDispatcher', () => {
     const failing = { send: jest.fn().mockRejectedValue(new Error('timeout')) };
     const first = setup([row({ attempts: 0 })], failing);
     await first.dispatcher.dispatchDue(new Date());
-    expect(first.repo.recordFailure).toHaveBeenCalledWith(manager, expect.any(Array), 'timeout', expect.any(Date));
+    expect(first.repo.recordFailure).toHaveBeenCalledWith(
+      manager,
+      expect.any(Array),
+      'timeout',
+      expect.any(Date),
+    );
 
     const last = setup([row({ attempts: MAX_ATTEMPTS - 1 })], failing);
     const summary = await last.dispatcher.dispatchDue(new Date());
-    expect(last.repo.recordFailure).toHaveBeenCalledWith(manager, expect.any(Array), 'timeout', null);
+    expect(last.repo.recordFailure).toHaveBeenCalledWith(
+      manager,
+      expect.any(Array),
+      'timeout',
+      null,
+    );
     expect(summary.failed).toBe(1);
   });
 
   it('fails rows whose channel has no strategy', async () => {
     const { dispatcher, repo } = setup(
-      [row({ channel: NotificationChannel.EMAIL, type: NotificationType.EMAIL_VERIFY_OTP })],
+      [
+        row({
+          channel: NotificationChannel.EMAIL,
+          type: NotificationType.EMAIL_VERIFY_OTP,
+        }),
+      ],
       {},
     );
     await dispatcher.dispatchDue(new Date());
@@ -213,5 +267,128 @@ describe('NotificationDispatcher', () => {
       expect.stringContaining('No delivery strategy'),
       null,
     );
+  });
+});
+
+describe('NotificationDispatcher: failure isolation and logging', () => {
+  const manager = {} as EntityManager;
+  const dataSource = {
+    transaction: (fn: (m: EntityManager) => Promise<unknown>) => fn(manager),
+  } as unknown as DataSource;
+  let log: jest.SpyInstance;
+  let warn: jest.SpyInstance;
+  let error: jest.SpyInstance;
+
+  beforeEach(() => {
+    log = jest
+      .spyOn(Logger.prototype, 'log')
+      .mockImplementation(() => undefined);
+    warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    error = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  function setup(
+    due: Notification[],
+    send = jest.fn().mockResolvedValue(undefined),
+  ) {
+    const repo = {
+      claimDue: jest.fn().mockResolvedValue(due),
+      markSent: jest.fn(),
+      markSkipped: jest.fn(),
+      recordFailure: jest.fn(),
+    };
+    const telegram: NotificationChannelStrategy = {
+      channel: NotificationChannel.TELEGRAM,
+      isAvailableFor: jest.fn().mockResolvedValue(true),
+      send,
+    };
+    const dispatcher = new NotificationDispatcher(
+      [telegram],
+      repo as unknown as NotificationsRepository,
+      dataSource,
+    );
+    return { dispatcher, repo, send };
+  }
+
+  it('a payload that fails to render fails only its batch; the rest is still sent', async () => {
+    const good = row({ payload: payload(['A1'], 'g-good') });
+    const bad = row({
+      payload: { ...payload(['B1'], 'g-bad'), startAt: 'not-a-date' },
+    });
+    const { dispatcher, repo, send } = setup([bad, good]);
+
+    // Before the fix this threw RangeError and rolled back the whole batch.
+    const summary = await dispatcher.dispatchDue(new Date());
+
+    expect(summary).toMatchObject({ sent: 1, failed: 1 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(repo.markSent).toHaveBeenCalledWith(
+      manager,
+      [good.id],
+      expect.any(Date),
+    );
+    expect(repo.recordFailure).toHaveBeenCalledWith(
+      manager,
+      [bad.id],
+      expect.stringContaining('Template failed'),
+      null,
+    );
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('failed permanently'),
+    );
+  });
+
+  it('warns on a retryable failure and errors when giving up', async () => {
+    const failing = jest.fn().mockRejectedValue(new Error('timeout'));
+    await setup([row({ attempts: 0 })], failing).dispatcher.dispatchDue(
+      new Date(),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('will retry: timeout'),
+    );
+    expect(error).not.toHaveBeenCalled();
+
+    await setup(
+      [row({ attempts: MAX_ATTEMPTS - 1 })],
+      failing,
+    ).dispatcher.dispatchDue(new Date());
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `failed permanently after ${MAX_ATTEMPTS} attempts`,
+      ),
+    );
+  });
+
+  it('logs a skip for an unreachable recipient, and never the message text', async () => {
+    const { dispatcher } = setup(
+      [row()],
+      jest.fn().mockRejectedValue(new RecipientUnreachableError('blocked')),
+    );
+    await dispatcher.dispatchDue(new Date());
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('skipped: blocked'),
+    );
+    const lines = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls]
+      .map(([m]) => String(m))
+      .join('\n');
+    expect(lines).not.toContain('Demo Library'); // payload content stays out of logs
+  });
+});
+
+describe('TelegramApiError.isRecipientGone', () => {
+  it.each([
+    [403, 'Forbidden: bot was blocked by the user', true],
+    [400, 'Bad Request: chat not found', true],
+    [400, 'Forbidden: user is deactivated', true],
+    [400, 'Bad Request: message text is empty', false],
+    [429, 'Too Many Requests: retry after 5', false],
+    [502, 'non-JSON response to sendMessage', false],
+  ])('%i %s -> %s', (code, description, gone) => {
+    expect(new TelegramApiError(code, description).isRecipientGone).toBe(gone);
   });
 });
