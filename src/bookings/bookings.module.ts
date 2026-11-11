@@ -12,6 +12,7 @@ import { AttendanceController } from './controllers/attendance.controller';
 import { BookingsController } from './controllers/bookings.controller';
 import { BookingEvent } from './entities/booking-event.entity';
 import { BookingQrToken } from './entities/booking-qr-token.entity';
+import { ExternalIdentitiesModule } from '../external-identities/external-identities.module';
 import { Booking } from './entities/booking.entity';
 import { BookingsRepository } from './repositories/bookings.repository';
 import { AttendanceService } from './services/attendance.service';
@@ -34,6 +35,8 @@ import { BookingsService } from './services/bookings.service';
     AuthModule,
     SeatsModule,
     PlacesModule,
+    // Member eligibility at partner places and member ids in booking events.
+    ExternalIdentitiesModule,
   ],
   controllers: [BookingsController, AttendanceController, AdminBookingsController],
   providers: [

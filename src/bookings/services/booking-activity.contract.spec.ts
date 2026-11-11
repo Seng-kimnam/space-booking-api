@@ -1,5 +1,6 @@
 import type { EntityManager } from 'typeorm';
 import { BookingEventType, BookingSource, BookingStatus } from '../../common/enums';
+import type { ExternalIdentitiesService } from '../../external-identities/external-identities.service';
 import { SchemaValidator } from '../../messaging/contract/schema-validator';
 import type { OutboxEvent } from '../../messaging/entities/outbox-event.entity';
 import { toMessage } from '../../messaging/outbox/envelope';
@@ -14,11 +15,19 @@ import { BookingActivityService, BookingRoutingKey } from './booking-activity.se
 describe('booking.* contract v1', () => {
   const validator = new SchemaValidator();
   const written: OutboxEventInput[] = [];
-  const service = new BookingActivityService({
-    add: async (_m, event) => {
-      written.push(event);
+  // LMS user 4444…0002 is linked to member 88.
+  const identities = {
+    memberIdsForUsers: async (_m: unknown, _system: string, userIds: string[]) =>
+      new Map(userIds.map((id) => [id, '88'])),
+  } as unknown as ExternalIdentitiesService;
+  const service = new BookingActivityService(
+    {
+      add: async (_m, event) => {
+        written.push(event);
+      },
     },
-  });
+    identities,
+  );
   const manager = {
     getRepository: () => ({ save: async () => [], create: (x: unknown) => x }),
   } as unknown as EntityManager;
@@ -45,14 +54,14 @@ describe('booking.* contract v1', () => {
     }) as unknown as Booking;
 
   const publish = (e: OutboxEventInput) =>
-    toMessage({
+    toMessage(({
       id: '0b8f5a8e-6a0f-4f0a-9c51-2b1f0e7d9a10',
       ...e,
       occurredAt: new Date(),
       publishedAt: null,
       attempts: 0,
       lastError: null,
-    } as OutboxEvent);
+    }) as unknown as OutboxEvent);
 
   const expectValid = (body: ReturnType<typeof publish>['body']) => {
     expect(() => validator.assertEnvelope(body)).not.toThrow();
@@ -109,7 +118,7 @@ describe('booking.* contract v1', () => {
     const { body } = publish(written[0]);
     expectValid(body);
     expect(body.data.cancelReason).toBe('LIBRARY_PLACE_CHANGED');
-    expect(body.data.external).toEqual({ system: 'library', placeId: '1', seatId: '57', memberId: null });
+    expect(body.data.external).toEqual({ system: 'library', placeId: '1', seatId: '57', memberId: '88' });
     expect(JSON.stringify(body)).not.toContain('free text');
   });
 

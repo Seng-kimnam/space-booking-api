@@ -155,6 +155,19 @@ class EnvironmentVariables {
   @Min(500)
   @Max(60_000)
   LMS_TIMEOUT_MS?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  LIBRARY_LINK_TTL_MINUTES?: number;
+
+  // e.g. https://app.example.com/link-library?code={code}
+  @IsOptional()
+  @Matches(/^(https?:\/\/\S*\{code\}\S*)?$/, {
+    message: 'LIBRARY_LINK_URL_TEMPLATE must be an http(s) URL containing {code} (or empty)',
+  })
+  LIBRARY_LINK_URL_TEMPLATE?: string;
 }
 
 /**

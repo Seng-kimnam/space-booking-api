@@ -31,6 +31,7 @@ export class PlaceRulesService {
     name: string;
     timezone: string;
     policy: BookingPolicy;
+    externalSystem: string | null;
   }> {
     const m = manager ?? this.ds.manager;
     const place = await m.findOneBy(Place, { id: placeId, isActive: true });
@@ -38,7 +39,13 @@ export class PlaceRulesService {
     if (!place || !policy) throw new NotFoundException('Place not found');
     // Partner-managed place: the partner must also have it open for booking.
     if (place.externalOpen === false) throw new NotFoundException('Place not found');
-    return { placeId, name: place.name, timezone: place.timezone, policy };
+    return {
+      placeId,
+      name: place.name,
+      timezone: place.timezone,
+      policy,
+      externalSystem: place.externalSystem,
+    };
   }
 
   isOpenForRange(

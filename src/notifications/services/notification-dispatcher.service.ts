@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { NotificationChannel } from '../../common/enums';
 import {
@@ -7,8 +7,10 @@ import {
   RecipientUnreachableError,
   RenderedNotification,
 } from '../channels/notification-channel.strategy';
+import { OutboxService } from '../../messaging/outbox/outbox.service';
 import { Notification } from '../entities/notification.entity';
 import { NotificationsRepository } from '../repositories/notifications.repository';
+import { buildAlertDueEvents } from './booking-alert-events';
 import {
   BookingAlertPayload,
   renderNotification,
@@ -74,6 +76,9 @@ export class NotificationDispatcher {
     strategies: NotificationChannelStrategy[],
     private readonly repository: NotificationsRepository,
     private readonly dataSource: DataSource,
+    // From the global MessagingModule; optional so module-level tests without
+    // messaging still compile. Publishes booking.alert_due.
+    @Optional() private readonly outbox?: OutboxService,
   ) {
     this.strategies = new Map(strategies.map((s) => [s.channel, s]));
   }
@@ -91,6 +96,11 @@ export class NotificationDispatcher {
         failed: 0,
       };
       const due = await this.repository.claimDue(manager, now, limit);
+      // The fact "this alert became due" goes to partners in the same
+      // transaction that claims the rows, independent of delivery.
+      if (this.outbox)
+        for (const event of await buildAlertDueEvents(manager, due, now))
+          await this.outbox.add(manager, event);
       for (const batch of groupForDelivery(due)) {
         await this.deliver(manager, batch, now, summary);
       }

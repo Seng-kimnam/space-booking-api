@@ -12,6 +12,7 @@ import { BookingPolicy } from '../entities/booking-policy.entity';
 import { PlaceClosure } from '../entities/place-closure.entity';
 import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 import { Place } from '../entities/place.entity';
+import { MessageType } from '../../messaging/contract/schemas';
 import { OutboxService } from '../../messaging/outbox/outbox.service';
 import { BookingPolicyDto } from '../dto/booking-policy.dto';
 import { ClosureDto } from '../dto/closure.dto';
@@ -270,10 +271,10 @@ export class PlacesService {
     await this.outbox.add(m, {
       aggregateType: 'place',
       aggregateId: place.id,
-      eventType: 'place.sync_applied',
+      eventType: MessageType.PLACE_SYNC_APPLIED,
       payload: {
         schemaVersion: 1,
-        placeId: place.externalId,
+        placeId: place.externalId!,
         revision: Number(place.externalRevision),
         sbPlaceId: place.id,
         bookingOpen: place.isActive && place.externalOpen === true,

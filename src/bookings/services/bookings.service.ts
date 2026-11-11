@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -37,6 +38,7 @@ import {
   toBookingEventResponse,
   toBookingResponse,
 } from '../dto/booking-response.dto';
+import { ExternalIdentitiesService } from '../../external-identities/external-identities.service';
 import { Booking } from '../entities/booking.entity';
 import { addMinutes } from '../domain/time';
 import { BookingsRepository } from '../repositories/bookings.repository';
@@ -80,6 +82,7 @@ export class BookingsService {
     private readonly notifications: NotificationsService,
     @Inject(SEAT_LOOKUP) private readonly seats: SeatLookupPort,
     @Inject(PLACE_RULES) private readonly placeRules: PlaceRulesPort,
+    private readonly identities: ExternalIdentitiesService,
   ) {}
 
   /**
@@ -130,6 +133,8 @@ export class BookingsService {
           seats[0].placeId,
           manager,
         );
+        if (ctx.externalSystem)
+          await this.assertPartnerEligibility(manager, user.id, ctx.externalSystem, ctx.timezone, now);
         this.rules.validateNewRange(range, ctx.policy, now);
         if (
           !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
@@ -485,6 +490,27 @@ export class BookingsService {
   }
 
   // ---- helpers ----
+
+  /**
+   * New bookings at a partner-managed place need the user's linked partner
+   * account in good standing (LMS member.standing_changed, decision D10).
+   * Users who never linked are not restricted. Existing bookings are kept.
+   */
+  private async assertPartnerEligibility(
+    manager: EntityManager,
+    userId: string,
+    system: string,
+    timezone: string,
+    now: Date,
+  ): Promise<void> {
+    // en-CA formats as YYYY-MM-DD: the place-local date to compare with the expiry date.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
+    const result = await this.identities.eligibility(manager, system, userId, today);
+    if (result && !result.eligible)
+      throw new ForbiddenException(
+        `Your library membership does not allow booking here (${result.reasons.join(', ') || 'not eligible'})`,
+      );
+  }
 
   private async cancelInTransaction(
     manager: EntityManager,

@@ -53,7 +53,7 @@ const outbox: OutboxPort = {
     // QueryDeepPartialEntity can't express a free-form jsonb Record; the fields match the entity.
     await manager
       .getRepository(OutboxEvent)
-      .insert(event as QueryDeepPartialEntity<OutboxEvent>);
+      .insert(event as unknown as QueryDeepPartialEntity<OutboxEvent>);
   },
 };
 

@@ -122,7 +122,7 @@ export const bookingV1 = {
 export const bookingAlertDueV1 = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: `${BASE}/booking.alert_due.v1.json`,
-  title: 'booking.alert_due data v1 (Space Booking -> partners, phase 2: not published yet)',
+  title: 'booking.alert_due data v1 (Space Booking -> partners)',
   type: 'object',
   required: ['bookingId', 'groupId', 'seatId', 'placeId', 'alertType', 'startAt', 'endAt', 'dueAt', 'occurredAt', 'external'],
   properties: {
@@ -305,7 +305,7 @@ export const placeSyncRejectedV1 = {
 export const identityV1 = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: `${BASE}/identity.v1.json`,
-  title: 'identity.linked / identity.unlinked data v1 (Space Booking -> LMS, phase 2: not published yet)',
+  title: 'identity.linked / identity.unlinked data v1 (Space Booking -> LMS)',
   description: 'No Space Booking user id, email or name is ever sent.',
   type: 'object',
   required: ['system', 'memberId', 'linked', 'changedAt'],
@@ -328,7 +328,7 @@ export const STANDING_REASONS = [
 export const memberStandingChangedV1 = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: `${BASE}/member.standing_changed.v1.json`,
-  title: 'member.standing_changed data v1 (LMS -> Space Booking, phase 3: not consumed yet)',
+  title: 'member.standing_changed data v1 (LMS -> Space Booking)',
   type: 'object',
   required: ['memberId', 'eligible', 'reasons', 'accountStatus', 'membershipStatus', 'expiryDate', 'blockedUntil', 'evaluatedAt'],
   properties: {
@@ -343,11 +343,47 @@ export const memberStandingChangedV1 = {
   },
 } as const;
 
+/** Every routing key in the contract. Use these instead of string literals. */
+export const MessageType = {
+  BOOKING_CREATED: 'booking.created',
+  BOOKING_MODIFIED: 'booking.modified',
+  BOOKING_EXTENDED: 'booking.extended',
+  BOOKING_CANCELLED: 'booking.cancelled',
+  BOOKING_CHECKED_IN: 'booking.checked_in',
+  BOOKING_CHECKED_OUT: 'booking.checked_out',
+  BOOKING_EXPIRED: 'booking.expired',
+  BOOKING_CHECKOUT_OVERDUE: 'booking.checkout_overdue',
+  BOOKING_ALERT_DUE: 'booking.alert_due',
+  PLACE_SYNC_APPLIED: 'place.sync_applied',
+  PLACE_SYNC_REJECTED: 'place.sync_rejected',
+  IDENTITY_LINKED: 'identity.linked',
+  IDENTITY_UNLINKED: 'identity.unlinked',
+  PLACE_CREATED: 'place.created',
+  PLACE_UPDATED: 'place.updated',
+  MEMBER_STANDING_CHANGED: 'member.standing_changed',
+} as const;
+export type MessageType = (typeof MessageType)[keyof typeof MessageType];
+
+/** What Space Booking publishes (the outbox refuses anything else). */
+export type PublishedMessageType =
+  | (typeof BOOKING_ROUTING_KEYS)[number]
+  | typeof MessageType.BOOKING_ALERT_DUE
+  | typeof MessageType.PLACE_SYNC_APPLIED
+  | typeof MessageType.PLACE_SYNC_REJECTED
+  | typeof MessageType.IDENTITY_LINKED
+  | typeof MessageType.IDENTITY_UNLINKED;
+
+/** What Space Booking consumes from LMS. */
+export type ConsumedMessageType =
+  | typeof MessageType.PLACE_CREATED
+  | typeof MessageType.PLACE_UPDATED
+  | typeof MessageType.MEMBER_STANDING_CHANGED;
+
 export type Direction = 'publish' | 'consume';
 export type Phase = 1 | 2 | 3;
 
 export interface ContractEntry {
-  routingKey: string;
+  routingKey: MessageType;
   version: number;
   /** Who sends it, from our point of view. */
   direction: Direction;
@@ -358,7 +394,7 @@ export interface ContractEntry {
 }
 
 const entry = (
-  routingKey: string,
+  routingKey: MessageType,
   direction: Direction,
   phase: Phase,
   implemented: boolean,
@@ -368,15 +404,20 @@ const entry = (
 /** Every message in the Space Booking <-> LMS contract. */
 export const CONTRACT: readonly ContractEntry[] = [
   ...BOOKING_ROUTING_KEYS.map((key) => entry(key, 'publish', 1, true, bookingV1)),
-  entry('place.sync_applied', 'publish', 1, true, placeSyncAppliedV1),
-  entry('place.sync_rejected', 'publish', 1, true, placeSyncRejectedV1),
-  entry('booking.alert_due', 'publish', 2, false, bookingAlertDueV1),
-  entry('identity.linked', 'publish', 2, false, identityV1),
-  entry('identity.unlinked', 'publish', 2, false, identityV1),
-  entry('place.created', 'consume', 1, true, placeSnapshotV1),
-  entry('place.updated', 'consume', 1, true, placeSnapshotV1),
-  entry('member.standing_changed', 'consume', 3, false, memberStandingChangedV1),
+  entry(MessageType.PLACE_SYNC_APPLIED, 'publish', 1, true, placeSyncAppliedV1),
+  entry(MessageType.PLACE_SYNC_REJECTED, 'publish', 1, true, placeSyncRejectedV1),
+  entry(MessageType.BOOKING_ALERT_DUE, 'publish', 2, true, bookingAlertDueV1),
+  entry(MessageType.IDENTITY_LINKED, 'publish', 2, true, identityV1),
+  entry(MessageType.IDENTITY_UNLINKED, 'publish', 2, true, identityV1),
+  entry(MessageType.PLACE_CREATED, 'consume', 1, true, placeSnapshotV1),
+  entry(MessageType.PLACE_UPDATED, 'consume', 1, true, placeSnapshotV1),
+  entry(MessageType.MEMBER_STANDING_CHANGED, 'consume', 3, true, memberStandingChangedV1),
 ];
+
+/** Is `type` something we publish (direction 'publish' in CONTRACT)? */
+export function isPublishedType(type: string): type is PublishedMessageType {
+  return CONTRACT.some((e) => e.routingKey === type && e.direction === 'publish');
+}
 
 /** Every schema, keyed by the file name partners get in docs/integration/schemas/. */
 export const SCHEMA_FILES: Record<string, object> = {

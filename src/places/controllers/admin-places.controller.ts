@@ -33,6 +33,8 @@ import { PlacesService } from '../services/places.service';
 import { CreatePlaceDto } from '../dto/create-place.dto';
 import { UpdatePlaceDto } from '../dto/update-place.dto';
 import { PlaceDetailResponseDto } from '../dto/place.response.dto';
+import { Publishes } from '../../messaging/contract/publishes.decorator';
+import { MessageType } from '../../messaging/contract/schemas';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
 @ApiTags('Places')
@@ -64,6 +66,7 @@ export class AdminPlacesController {
   }
 
   @Patch(':placeId')
+  @Publishes(MessageType.PLACE_SYNC_APPLIED)
   @ApiOperation({
     summary: 'Update place, opening hours, closures and/or policy',
     description:

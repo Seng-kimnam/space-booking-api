@@ -156,13 +156,23 @@ CREATE TABLE places (
   lat          double precision,
   lng          double precision,
   timezone     varchar(64)      NOT NULL DEFAULT 'Asia/Phnom_Penh',  -- IANA, validated in the app
-  is_active    boolean          NOT NULL DEFAULT true,
+  is_active    boolean          NOT NULL DEFAULT true,       -- our go-live switch
+  -- Partner-managed places (LMS = 'library'); all NULL when our admins manage the place.
+  external_system   varchar(30),
+  external_id       varchar(64),                             -- partner's place id
+  external_revision bigint,                                  -- last applied snapshot revision
+  external_open     boolean,                                 -- partner: ACTIVE and bookingEnabled
   created_at   timestamptz      NOT NULL DEFAULT now(),
   updated_at   timestamptz      NOT NULL DEFAULT now(),
   deleted_at   timestamptz,
   CONSTRAINT places_lat_chk CHECK (lat BETWEEN -90 AND 90),
-  CONSTRAINT places_lng_chk CHECK (lng BETWEEN -180 AND 180)
+  CONSTRAINT places_lng_chk CHECK (lng BETWEEN -180 AND 180),
+  CONSTRAINT places_external_chk CHECK (
+    (external_system IS NULL AND external_id IS NULL AND external_revision IS NULL AND external_open IS NULL)
+    OR (external_system IS NOT NULL AND external_id IS NOT NULL AND external_revision IS NOT NULL AND external_open IS NOT NULL)),
+  CONSTRAINT places_external_revision_chk CHECK (external_revision >= 0)
 );
+CREATE UNIQUE INDEX places_external_uk ON places (external_system, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE place_opening_hours (
   id               uuid     PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -219,6 +229,7 @@ CREATE TABLE areas (
   floor        varchar(30),
   description  text,
   is_active    boolean      NOT NULL DEFAULT true,
+  external_id  varchar(64),                              -- partner's area id (partner-managed places)
   created_at   timestamptz  NOT NULL DEFAULT now(),
   updated_at   timestamptz  NOT NULL DEFAULT now(),
   deleted_at   timestamptz,
@@ -226,6 +237,8 @@ CREATE TABLE areas (
   CONSTRAINT areas_id_place_uk UNIQUE (id, place_id)
 );
 CREATE UNIQUE INDEX areas_place_name_uk ON areas (place_id, name) WHERE deleted_at IS NULL;
+-- Includes soft-deleted rows: an area that comes back in a later snapshot is restored, not duplicated.
+CREATE UNIQUE INDEX areas_place_external_uk ON areas (place_id, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE seats (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,6 +247,7 @@ CREATE TABLE seats (
   label       varchar(30) NOT NULL,
   features    jsonb       NOT NULL DEFAULT '{}'::jsonb,  -- power, window, desk size
   status      seat_status NOT NULL DEFAULT 'ACTIVE',
+  external_id varchar(64),                               -- partner's seat id (partner-managed places)
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   deleted_at  timestamptz,
@@ -242,6 +256,8 @@ CREATE TABLE seats (
     REFERENCES areas (id, place_id) ON DELETE RESTRICT
 );
 CREATE UNIQUE INDEX seats_place_label_uk ON seats (place_id, label) WHERE deleted_at IS NULL;
+-- Includes soft-deleted rows: a seat that comes back is restored with its booking history.
+CREATE UNIQUE INDEX seats_place_external_uk ON seats (place_id, external_id) WHERE external_id IS NOT NULL;
 
 -- =============================================================================
 -- Integration: API clients (created before bookings, which reference it)
@@ -426,6 +442,36 @@ CREATE TABLE inbox_events (
   error         text,
   CONSTRAINT inbox_events_source_message_uk UNIQUE (source, message_id)
 );
+
+-- Partner account links (LMS members). Created only by the explicit link flow.
+CREATE TABLE external_identities (
+  id                     uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                uuid         NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  external_system        varchar(30)  NOT NULL,                 -- 'library' = LMS
+  external_user_id       varchar(64)  NOT NULL,                 -- LMS member id
+  client_id              uuid         REFERENCES api_clients (id) ON DELETE SET NULL,
+  linked_at              timestamptz  NOT NULL DEFAULT now(),
+  standing_eligible      boolean,                               -- NULL = no standing received yet
+  standing_reasons       text[]       NOT NULL DEFAULT '{}',
+  standing_expiry_date   date,                                  -- local date
+  standing_evaluated_at  timestamptz,
+  CONSTRAINT external_identities_member_uk UNIQUE (external_system, external_user_id),
+  CONSTRAINT external_identities_user_uk   UNIQUE (external_system, user_id)
+);
+
+-- One-time link codes (hash only, single use).
+CREATE TABLE external_link_requests (
+  id                uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  external_system   varchar(30)  NOT NULL,
+  external_user_id  varchar(64)  NOT NULL,
+  client_id         uuid         REFERENCES api_clients (id) ON DELETE SET NULL,
+  code_hash         varchar(64)  NOT NULL,
+  expires_at        timestamptz  NOT NULL,
+  used_at           timestamptz,
+  created_at        timestamptz  NOT NULL DEFAULT now(),
+  CONSTRAINT external_link_requests_code_hash_uk UNIQUE (code_hash)
+);
+CREATE INDEX external_link_requests_member_idx ON external_link_requests (external_system, external_user_id);
 
 -- =============================================================================
 -- Indexes (docs/erd.md section 6)
