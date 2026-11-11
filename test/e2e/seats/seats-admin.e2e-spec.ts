@@ -134,6 +134,23 @@ describe('seats admin writes (real Postgres)', () => {
       expect((await create(P, body)).status).toBe(400);
     });
 
+    it.each([
+      ['a newline', 'a\nb'],
+      ['a tab', 'a\tb'],
+      ['a NUL character', 'a\u0000b'],
+    ])('400 on label with %s', async (_n, label) => {
+      expect((await create(P, { label })).status).toBe(400);
+    });
+
+    it.each([
+      ['Bàn 12'],
+      ['座位-3'],
+    ])('201 on label %s', async (label) => {
+      const res = await create(P, { label });
+      expect(res.status).toBe(201);
+      expect(res.body.label).toBe(label);
+    });
+
     it('404 for unknown or soft-deleted place', async () => {
       expect((await create(randomUUID(), { label: lbl() })).status).toBe(404);
       const gone = await insertPlace(ds);
@@ -207,6 +224,18 @@ describe('seats admin writes (real Postgres)', () => {
       expect((await patch(randomUUID(), { label: lbl() })).status).toBe(404);
       await api('delete', `/admin/seats/${b.id}`, admin).expect(204);
       expect((await patch(b.id, { label: lbl() })).status).toBe(404);
+    });
+
+    it('400 for a label with control characters', async () => {
+      const made = (await create(P, { label: lbl() })).body;
+      for (const label of ['a\nb', 'a\tb', 'a\u0000b']) {
+        const res = await api('patch', `/admin/seats/${made.id}`, admin).send({
+          label,
+        });
+        expect(res.status).toBe(400);
+      }
+      const res = await api('get', `/seats/${made.id}`);
+      expect(res.body.label).toBe(made.label);
     });
   });
 

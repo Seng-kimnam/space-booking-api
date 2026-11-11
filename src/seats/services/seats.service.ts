@@ -9,7 +9,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   EntityManager,
   IsNull,
-  QueryFailedError,
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
@@ -21,6 +20,10 @@ import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { SeatPageResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 import { PlacesService } from '../../places/services/places.service';
+import {
+  PG_UNIQUE_VIOLATION,
+  isPgError,
+} from '../../common/utils/db-errors';
 
 // Seat queries filter on their place inside the same SQL (one round trip, and
 // the filter composes with pagination), so this stays a subquery rather than a
@@ -30,15 +33,12 @@ const PLACE_VISIBLE =
 
 const AREA_MISMATCH = 'areaId does not belong to this place';
 
+const PG_FOREIGN_KEY_VIOLATION = '23503'; // not in common/utils/db-errors.ts yet
+
 function mapDbError(err: unknown): unknown {
-  if (!(err instanceof QueryFailedError)) return err;
-  const { code, constraint } = err.driverError as {
-    code?: string;
-    constraint?: string;
-  };
-  if (code === '23505' && constraint === 'seats_place_label_uk')
+  if (isPgError(err, PG_UNIQUE_VIOLATION, 'seats_place_label_uk'))
     return new ConflictException('Seat label already exists in this place');
-  if (code === '23503' && constraint === 'seats_area_same_place_fk')
+  if (isPgError(err, PG_FOREIGN_KEY_VIOLATION, 'seats_area_same_place_fk'))
     return new BadRequestException(AREA_MISMATCH);
   return err;
 }

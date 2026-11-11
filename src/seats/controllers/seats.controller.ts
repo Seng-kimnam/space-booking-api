@@ -4,8 +4,6 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -22,15 +20,7 @@ import {
   toSeatResponse,
 } from '../dto/seat.response.dto';
 
-// Per-controller pipe because there is no global one yet; drop it when one is added.
 @ApiTags('Seats')
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
 @Controller()
 export class SeatsController {
   constructor(private readonly seats: SeatsService) {}

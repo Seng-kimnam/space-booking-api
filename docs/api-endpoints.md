@@ -103,7 +103,7 @@ Notes (seats):
 - List endpoints take `page` (>=1, default 1) and `limit` (1..100, default 20) and return `{ items, page, limit, total }`. Unknown query params are rejected with 400.
 - `/seats/available` and `/seats/:seatId/availability` are implemented by the bookings module, not seats.
 - Delete is a soft delete: the seat disappears from reads and its label can be reused.
-- Errors: `400` validation or area not in the seat's place; `404` seat/place not found or not visible; `409` label already used in the place.
+- Errors: `400` validation (label is 1..30 characters after trimming, with no control characters) or area not in the seat's place; `404` seat/place not found or not visible; `409` label already used in the place.
 
 ## 4. Bookings
 | # | Method | Endpoint | Description | Access |
