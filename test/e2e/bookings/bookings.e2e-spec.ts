@@ -61,7 +61,9 @@ describe('Bookings (integration, real Postgres)', () => {
     // Taken before the await, so parallel calls get distinct emails.
     const n = userSeq++;
     const [{ id }] = await ds.query(
-      `INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING id`,
+      // role_id since migration 1794161000000-UserRoleRelation dropped users.role.
+      `INSERT INTO users (name, email, role_id)
+       VALUES ($1, $2, (SELECT id FROM roles WHERE name = $3)) RETURNING id`,
       ['Test', `it-${run}-${n}@example.test`, role],
     );
     userIds.push(id);

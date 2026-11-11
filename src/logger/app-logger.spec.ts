@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { AppLogger } from './app-logger';
+import { requestIdMiddleware } from '../common/request-context';
 
 // WriteStream writes asynchronously; wait for pending writes to land.
 const flush = () => new Promise((resolve) => setTimeout(resolve, 50));
@@ -48,6 +49,40 @@ describe('AppLogger', () => {
       message: 'careful',
       context: 'Bookings',
     });
+  });
+
+  it('tags lines logged during a request with its X-Request-Id', async () => {
+    const file = join(dir, 'app.log');
+    const logger = new AppLogger({ file });
+    const res = { setHeader: jest.fn() };
+
+    requestIdMiddleware(
+      { headers: { 'x-request-id': 'abc-123' } } as never,
+      res as never,
+      () => logger.log('inside', 'Bookings'),
+    );
+    logger.log('outside', 'Bookings');
+    await flush();
+
+    expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', 'abc-123');
+    const [inside, outside] = readLines(file);
+    expect(inside).toMatchObject({
+      message: 'inside req=abc-123',
+      requestId: 'abc-123',
+    });
+    expect(outside.message).toBe('outside');
+    expect(outside.requestId).toBeUndefined();
+  });
+
+  it('replaces an unsafe incoming request id with a generated one', () => {
+    const res = { setHeader: jest.fn() };
+    requestIdMiddleware(
+      { headers: { 'x-request-id': 'bad id\ninjected' } } as never,
+      res as never,
+      () => undefined,
+    );
+    const [, id] = res.setHeader.mock.calls[0];
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('keeps console output when a file is configured', async () => {

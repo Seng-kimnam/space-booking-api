@@ -7,4 +7,8 @@ export const authConfig = registerAs('auth', () => ({
   jwtSecret: process.env.JWT_SECRET ?? '',
   // Access-token lifetime: a number of seconds or a duration like 15m, 1h, 7d.
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
+  // Fixed, not env: they only have to match between signing and verifying,
+  // and stop tokens minted for another service from being accepted here.
+  jwtIssuer: 'space-booking-api',
+  jwtAudience: 'space-booking-api',
 }));

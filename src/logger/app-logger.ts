@@ -1,6 +1,7 @@
 import { ConsoleLogger, ConsoleLoggerOptions, LogLevel } from '@nestjs/common';
 import { createWriteStream, mkdirSync, WriteStream } from 'fs';
 import { dirname } from 'path';
+import { currentRequestId } from '../common/request-context';
 
 export interface AppLoggerOptions extends ConsoleLoggerOptions {
   /** When set, every log line is also appended to this file as JSON. */
@@ -35,8 +36,15 @@ export class AppLogger extends ConsoleLogger {
     errorStack?: unknown,
     params?: Record<string, unknown>,
   ): void {
+    // Lines logged while handling a request carry its id (X-Request-Id), so
+    // one request can be followed across services and in Loki.
+    const requestId = currentRequestId();
+    const tagged = requestId
+      ? messages.map((m) => (typeof m === 'string' ? `${m} req=${requestId}` : m))
+      : messages;
+
     super.printMessages(
-      messages,
+      tagged,
       context,
       logLevel,
       writeStreamType,
@@ -47,7 +55,7 @@ export class AppLogger extends ConsoleLogger {
     if (!this.fileStream) {
       return;
     }
-    for (const message of messages) {
+    for (const message of tagged) {
       const error = message instanceof Error ? message : undefined;
       const entry = this.getJsonLogObject(error ? error.message : message, {
         context,
@@ -55,7 +63,8 @@ export class AppLogger extends ConsoleLogger {
         errorStack: errorStack ?? error?.stack,
         params,
       });
-      this.fileStream.write(`${safeStringify(entry)}\n`);
+      const line = requestId ? { ...entry, requestId } : entry;
+      this.fileStream.write(`${safeStringify(line)}\n`);
     }
   }
 }

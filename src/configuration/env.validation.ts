@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -82,6 +83,15 @@ class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   MAIL_PORT?: number;
+
+  // 'true' | 'false' strings, as .env provides them (mail.config.ts).
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  MAIL_SECURE?: string;
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  MAIL_REQUIRE_TLS?: string;
 
   @IsOptional()
   @IsInt()
