@@ -19,7 +19,10 @@ export class PlaceRulesService {
     private readonly hours: OpeningHoursService,
   ) {}
 
-  /** Throws 404 if the place doesn't exist, is inactive or deleted, or has no policy. */
+  /**
+   * Throws 404 if the place doesn't exist, is inactive or deleted, has no
+   * policy, or is partner-managed and closed by the partner (external_open).
+   */
   async getBookingContext(
     placeId: string,
     manager?: EntityManager,
@@ -33,6 +36,8 @@ export class PlaceRulesService {
     const place = await m.findOneBy(Place, { id: placeId, isActive: true });
     const policy = place && (await m.findOneBy(BookingPolicy, { placeId }));
     if (!place || !policy) throw new NotFoundException('Place not found');
+    // Partner-managed place: the partner must also have it open for booking.
+    if (place.externalOpen === false) throw new NotFoundException('Place not found');
     return { placeId, name: place.name, timezone: place.timezone, policy };
   }
 

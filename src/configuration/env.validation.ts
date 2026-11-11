@@ -13,6 +13,7 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
@@ -98,6 +99,62 @@ class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   REDIS_PORT?: number;
+
+  // ---- RabbitMQ (optional: empty = messaging off, rabbitmq.config.ts) ----
+  // amqp://user:pass@host:5672/vhost, or amqps:// outside local development.
+  @IsOptional()
+  @Matches(/^(amqps?:\/\/.+)?$/, {
+    message: 'RABBITMQ_URL must start with amqp:// or amqps:// (or be empty)',
+  })
+  RABBITMQ_URL?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  OUTBOX_RELAY_BATCH?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  RABBITMQ_PREFETCH?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  RABBITMQ_MAX_ATTEMPTS?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(86_400_000)
+  RABBITMQ_RETRY_DELAY_MS?: number;
+
+  // 'true' turns on the LMS consumer (place.created / place.updated).
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  LIBRARY_INTEGRATION_ENABLED?: string;
+
+  // ---- LMS REST API (optional; empty = place repair job off) ----
+  @IsOptional()
+  @Matches(/^(https?:\/\/[^\s]+)?$/, {
+    message: 'LMS_BASE_URL must be an http(s) URL (or empty)',
+  })
+  LMS_BASE_URL?: string;
+
+  // Issued by LMS (their SHARED_SERVICE_API_KEY). Required when LMS_BASE_URL is set.
+  @ValidateIf((env: EnvironmentVariables) => !!env.LMS_BASE_URL)
+  @IsString()
+  @MinLength(16, { message: 'LMS_API_KEY must be at least 16 characters when LMS_BASE_URL is set' })
+  LMS_API_KEY?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(500)
+  @Max(60_000)
+  LMS_TIMEOUT_MS?: number;
 }
 
 /**

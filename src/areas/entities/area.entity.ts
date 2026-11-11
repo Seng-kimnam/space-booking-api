@@ -21,6 +21,11 @@ import { Place } from '../../places/entities/place.entity';
   where: 'deleted_at IS NULL',
 })
 @Index('areas_place_idx', ['placeId'])
+// Includes soft-deleted rows: a returning partner area is restored, not duplicated.
+@Index('areas_place_external_uk', ['placeId', 'externalId'], {
+  unique: true,
+  where: 'external_id IS NOT NULL',
+})
 export class Area {
   @PrimaryGeneratedColumn('uuid', { primaryKeyConstraintName: 'areas_pkey' })
   id: string;
@@ -46,6 +51,10 @@ export class Area {
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
+
+  // Partner's area id when the place is partner-managed (places.external_system).
+  @Column({ name: 'external_id', type: 'varchar', length: 64, nullable: true })
+  externalId: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

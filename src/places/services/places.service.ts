@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, QueryFailedError, Repository } from 'typeorm';
@@ -11,6 +12,7 @@ import { BookingPolicy } from '../entities/booking-policy.entity';
 import { PlaceClosure } from '../entities/place-closure.entity';
 import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 import { Place } from '../entities/place.entity';
+import { OutboxService } from '../../messaging/outbox/outbox.service';
 import { BookingPolicyDto } from '../dto/booking-policy.dto';
 import { ClosureDto } from '../dto/closure.dto';
 import { CreatePlaceDto } from '../dto/create-place.dto';
@@ -46,6 +48,35 @@ export function mapDbError(err: unknown): unknown {
   return err;
 }
 
+/**
+ * Fields the partner owns on a partner-managed place (docs/lms-integration-proposal.md
+ * section 3.1). Our admins keep isActive (go-live) and bookingPolicy.
+ */
+const PARTNER_OWNED_FIELDS = [
+  'name',
+  'type',
+  'description',
+  'address',
+  'lat',
+  'lng',
+  'timezone',
+  'openingHours',
+  'closures',
+] as const;
+
+/**
+ * 409 for admin writes to a partner-managed place, its areas or its seats: the
+ * partner's next snapshot would overwrite them. Change them in the partner system.
+ */
+export function assertNotPartnerManaged(
+  place: Pick<Place, 'externalSystem'>,
+): void {
+  if (place.externalSystem)
+    throw new ConflictException(
+      `Managed by the ${place.externalSystem} system; change it there`,
+    );
+}
+
 // For ILIKE: treat the user's %, _ and \ literally.
 export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, '\\$&');
 
@@ -71,6 +102,9 @@ export class PlacesService {
     private readonly closures: Repository<PlaceClosure>,
     @InjectRepository(BookingPolicy)
     private readonly policies: Repository<BookingPolicy>,
+    // From the global MessagingModule. Optional so module-level tests that
+    // don't load messaging still compile the places module.
+    @Optional() private readonly outbox?: OutboxService,
   ) {}
 
   /** Public list: active, not deleted. */
@@ -157,10 +191,18 @@ export class PlacesService {
         .where('place.id = :placeId', { placeId })
         .getOne();
       if (!place) throw new NotFoundException('Place not found');
+      if (
+        place.externalSystem &&
+        PARTNER_OWNED_FIELDS.some((f) => dto[f] !== undefined)
+      )
+        assertNotPartnerManaged(place);
 
+      const wasActive = place.isActive;
       const { openingHours, closures, bookingPolicy, ...fields } = dto;
       Object.assign(place, definedOnly(fields));
       await m.save(place);
+      if (place.externalSystem && place.isActive !== wasActive)
+        await this.publishGoLive(m, place);
 
       if (openingHours) await this.replaceHours(m, placeId, openingHours);
       if (closures) await this.replaceClosures(m, placeId, closures);
@@ -180,6 +222,7 @@ export class PlacesService {
     // Seats of a deleted place already disappear from reads (seats checks places.deleted_at).
     const place = await this.places.findOneBy({ id: placeId });
     if (!place) throw new NotFoundException('Place not found');
+    assertNotPartnerManaged(place);
     await this.places.softDelete({ id: placeId });
     this.logger.log(`Place deleted: id=${placeId} name=${place.name}`);
   }
@@ -207,6 +250,37 @@ export class PlacesService {
       this.policies.findOneBy({ placeId }),
     ]);
     return toPlaceDetailResponse(place, hours, closures, policy);
+  }
+
+  /**
+   * Our admin switched a partner-managed place on or off: tell the partner with
+   * place.sync_applied for the current revision (docs/lms-integration-proposal.md
+   * section 7.4.2), in the same transaction.
+   */
+  private async publishGoLive(m: EntityManager, place: Place): Promise<void> {
+    // shortcut: reads seats directly; places can't import seats
+    // (docs/project-structure.md section 3).
+    const seats: { external_id: string; id: string }[] = await m.query(
+      `SELECT external_id, id FROM seats
+        WHERE place_id = $1 AND external_id IS NOT NULL AND deleted_at IS NULL
+        ORDER BY label`,
+      [place.id],
+    );
+    if (!this.outbox) return;
+    await this.outbox.add(m, {
+      aggregateType: 'place',
+      aggregateId: place.id,
+      eventType: 'place.sync_applied',
+      payload: {
+        schemaVersion: 1,
+        placeId: place.externalId,
+        revision: Number(place.externalRevision),
+        sbPlaceId: place.id,
+        bookingOpen: place.isActive && place.externalOpen === true,
+        seats: seats.map((s) => ({ seatId: s.external_id, sbSeatId: s.id })),
+        cancelledBookings: 0,
+      },
+    });
   }
 
   private async replaceHours(

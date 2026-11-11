@@ -2,8 +2,10 @@ import { appConfig } from './app.config';
 import { authConfig } from './auth.config';
 import { bookingConfig } from './booking.config';
 import { databaseConfig } from './database.config';
+import { integrationsConfig } from './integrations.config';
 import { loggerConfig } from './logger.config';
 import { mailConfig } from './mail.config';
+import { rabbitmqConfig } from './rabbitmq.config';
 import { redisConfig } from './redis.config';
 import { telegramConfig } from './telegram.config';
 
@@ -12,8 +14,10 @@ export {
   authConfig,
   bookingConfig,
   databaseConfig,
+  integrationsConfig,
   loggerConfig,
   mailConfig,
+  rabbitmqConfig,
   redisConfig,
   telegramConfig,
 };
@@ -29,4 +33,6 @@ export const configurations = [
   loggerConfig,
   telegramConfig,
   bookingConfig,
+  rabbitmqConfig,
+  integrationsConfig,
 ];

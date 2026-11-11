@@ -1,6 +1,6 @@
 # Infrastructure
 
-Local services for development: **PostgreSQL**, **pgAdmin**, **Redis**, **Mailpit**,
+Local services for development: **PostgreSQL**, **pgAdmin**, **Redis**, **Mailpit**, **RabbitMQ**,
 plus logging with **Loki**, **Grafana Alloy** and **Grafana** (see [Logging & monitoring](#logging--monitoring)).
 The API itself runs on your machine with `npm run start:dev`.
 
@@ -9,6 +9,7 @@ infrastructure/
 ├── docker/
 │   ├── development/docker-compose.yml   # services for local dev (API runs on host)
 │   └── production/docker-compose.yml    # API in Docker + db, redis, monitoring
+├── rabbitmq/setup-dev.sh                 # vhost + per-system users for the shared broker
 └── monitoring/
     ├── alloy/config.development.alloy   # tails ./logs/*.log
     ├── alloy/config.production.alloy    # reads Docker container logs
@@ -25,6 +26,7 @@ cp .env.example .env   # then fill in the values
 Variables used by compose: `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`,
 `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD`, `PGADMIN_PORT`,
 `REDIS_PORT`, `MAIL_PORT`, `MAILPIT_UI_PORT`,
+`RABBITMQ_PORT`, `RABBITMQ_UI_PORT`, `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASSWORD`,
 `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_PORT`, `LOKI_PORT`, `LOKI_RETENTION_PERIOD`, `ALLOY_PORT`.
 
 Since the API runs on the host, use `DB_HOST=localhost`, `REDIS_HOST=localhost` and `MAIL_HOST=127.0.0.1` in `.env`.
@@ -48,6 +50,24 @@ npm run start:dev
 ```
 
 API: http://localhost:3000/api/v1. Swagger: http://localhost:3000/api/docs (disabled when `NODE_ENV=production`).
+
+## RabbitMQ
+
+The broker is shared with the LMS team in local development. After the first `up`:
+
+```bash
+$COMPOSE exec rabbitmq sh /setup-dev.sh   # vhost space-library-dev, users space-booking / library
+```
+
+Then set in `.env`:
+
+```bash
+RABBITMQ_URL=amqp://space-booking:space-booking-dev@localhost:5672/space-library-dev
+```
+
+Leave `RABBITMQ_URL` empty to run without a broker: outbox rows just stay unpublished.
+Management UI: http://localhost:15672. Contract and hand-off for LMS:
+[`docs/integration/lms-booking-events-now.md`](../docs/integration/lms-booking-events-now.md).
 
 ## Migrations
 

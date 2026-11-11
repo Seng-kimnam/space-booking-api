@@ -14,8 +14,8 @@ import { TelegramWebhookRegistrar } from './telegram-webhook.registrar';
  * Needs two providers from teammates' modules before it can be added to
  * AppModule (see telegram.ports.ts):
  *   imports:   [UsersModule, MessagingModule],
- *   providers: [{ provide: TELEGRAM_LINK_CODES, useExisting: OtpService },
- *               { provide: INBOX, useExisting: InboxService }]
+ *   providers: [{ provide: TELEGRAM_LINK_CODES, useExisting: OtpService }]
+ * INBOX is already bound to InboxService by the global MessagingModule.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([TelegramAccount]), AuthModule],

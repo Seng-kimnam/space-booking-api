@@ -29,6 +29,22 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...valid, MAIL_SECURE: 'true', MAIL_REQUIRE_TLS: 'false' }),
     ).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...valid,
+        RABBITMQ_URL: 'amqp://space-booking:pw@localhost:5672/space-library-dev',
+        OUTBOX_RELAY_BATCH: '50',
+      }),
+    ).not.toThrow();
+    expect(() => validateEnv({ ...valid, RABBITMQ_URL: '' })).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...valid,
+        LMS_BASE_URL: 'http://localhost:3002/api',
+        LMS_API_KEY: 'k'.repeat(32),
+        LIBRARY_INTEGRATION_ENABLED: 'true',
+      }),
+    ).not.toThrow();
   });
 
   it.each([
@@ -45,6 +61,11 @@ describe('validateEnv', () => {
     ['bad NODE_ENV', { NODE_ENV: 'staging' }, 'NODE_ENV'],
     ['bad MAIL_SECURE', { MAIL_SECURE: 'yes' }, 'MAIL_SECURE'],
     ['bad MAIL_REQUIRE_TLS', { MAIL_REQUIRE_TLS: '1' }, 'MAIL_REQUIRE_TLS'],
+    ['bad RABBITMQ_URL scheme', { RABBITMQ_URL: 'http://localhost:5672' }, 'RABBITMQ_URL'],
+    ['OUTBOX_RELAY_BATCH out of range', { OUTBOX_RELAY_BATCH: '0' }, 'OUTBOX_RELAY_BATCH'],
+    ['bad LMS_BASE_URL', { LMS_BASE_URL: 'ftp://lms' }, 'LMS_BASE_URL'],
+    ['LMS_BASE_URL without a key', { LMS_BASE_URL: 'http://localhost:3002/api' }, 'LMS_API_KEY'],
+    ['bad LIBRARY_INTEGRATION_ENABLED', { LIBRARY_INTEGRATION_ENABLED: 'yes' }, 'LIBRARY_INTEGRATION_ENABLED'],
   ])('rejects %s, naming the variable', (_, override, name) => {
     expect(() => validateEnv({ ...valid, ...override })).toThrow(name);
   });

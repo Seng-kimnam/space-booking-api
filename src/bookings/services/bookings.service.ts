@@ -43,6 +43,7 @@ import { BookingsRepository } from '../repositories/bookings.repository';
 import {
   BookingActivityService,
   BookingActor,
+  CancelReasonCode,
   BookingRoutingKey,
 } from './booking-activity.service';
 import { BookingQrService } from './booking-qr.service';
@@ -375,6 +376,7 @@ export class BookingsService {
         { userId: user.id },
         dto.reason ?? null,
         now,
+        'USER_CANCELLED',
       );
       return targets[0];
     });
@@ -436,12 +438,50 @@ export class BookingsService {
         { userId: admin.id },
         reason,
         new Date(),
+        'ADMIN_CANCELLED',
       );
     });
     this.logger.log(
       `Booking cancelled by admin: booking=${bookingId} admin=${admin.id}`,
     );
     return toBookingResponse((await this.bookings.findById(bookingId))!);
+  }
+
+  /**
+   * System cancellation because the partner (LMS) changed the place: seat
+   * removed, hours or closures changed, place closed (docs/lms-integration-proposal.md
+   * section 6.1, D4). Runs on the caller's transaction (the place sync). Each
+   * booking is cancelled on its own; other seats of its group may stay.
+   * Users get the normal cancellation alert.
+   */
+  async cancelForPartnerChange(
+    manager: EntityManager,
+    cancellations: { bookingId: string; subReason: string }[],
+    now: Date,
+  ): Promise<number> {
+    if (cancellations.length === 0) return 0;
+    const bookings = await this.bookings.findByIds(
+      cancellations.map((c) => c.bookingId),
+      manager,
+    );
+    const subReasons = new Map(cancellations.map((c) => [c.bookingId, c.subReason]));
+    let cancelled = 0;
+    for (const b of bookings) {
+      if (b.status !== BookingStatus.PENDING) continue;
+      const subReason = subReasons.get(b.id) ?? 'OTHER';
+      await this.cancelInTransaction(
+        manager,
+        [b],
+        'system',
+        `Library place changed (${subReason})`,
+        now,
+        'LIBRARY_PLACE_CHANGED',
+        { subReason },
+      );
+      cancelled++;
+    }
+    if (cancelled > 0) this.logger.log(`Bookings cancelled by partner place change: ${cancelled}`);
+    return cancelled;
   }
 
   // ---- helpers ----
@@ -452,6 +492,8 @@ export class BookingsService {
     actor: BookingActor,
     reason: string | null,
     now: Date,
+    cancelReason: CancelReasonCode,
+    extraMetadata: Record<string, unknown> = {},
   ): Promise<void> {
     for (const b of targets)
       assertTransition(b.status, BookingStatus.CANCELLED);
@@ -479,7 +521,8 @@ export class BookingsService {
       event: BookingEventType.CANCELLED,
       routingKey: BookingRoutingKey.CANCELLED,
       actor,
-      metadata: reason ? { reason } : {},
+      cancelReason,
+      metadata: { ...(reason ? { reason } : {}), ...extraMetadata },
     });
   }
 

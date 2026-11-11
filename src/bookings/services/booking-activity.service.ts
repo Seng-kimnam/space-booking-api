@@ -14,6 +14,12 @@ import { Booking } from '../entities/booking.entity';
 /** Who made a change. API clients will add a `clientId` variant. */
 export type BookingActor = { userId: string } | 'system';
 
+/**
+ * Machine reason on booking.cancelled events (docs/integration/schemas/booking.v1.json).
+ * User free text stays in bookings.cancel_reason and is never published.
+ */
+export type CancelReasonCode = 'USER_CANCELLED' | 'ADMIN_CANCELLED' | 'LIBRARY_PLACE_CHANGED';
+
 /** Outbox routing keys (docs/api-endpoints.md section 9). */
 export const BookingRoutingKey = {
   CREATED: 'booking.created',
@@ -32,6 +38,8 @@ export interface RecordOptions {
   actor: BookingActor;
   /** MODIFIED / EXTENDED: range before the change, by booking id. */
   oldRanges?: Map<string, TimeRange>;
+  /** CANCELLED only. */
+  cancelReason?: CancelReasonCode;
   metadata?: Record<string, unknown>;
 }
 
@@ -78,7 +86,7 @@ export class BookingActivityService {
         aggregateType: 'booking',
         aggregateId: b.id,
         eventType: options.routingKey,
-        // No secrets: no idempotency key, no QR data.
+        // No secrets: no idempotency key, no QR data. Shape: booking.v1.json.
         payload: {
           schemaVersion: EVENT_SCHEMA_VERSION,
           bookingId: b.id,
@@ -90,17 +98,31 @@ export class BookingActivityService {
           status: b.status,
           startAt: b.timeRange.start.toISOString(),
           endAt: b.timeRange.end.toISOString(),
-          ...(rangeChanged && options.oldRanges?.get(b.id)
-            ? {
-                previousStartAt: options.oldRanges.get(b.id)!.start.toISOString(),
-                previousEndAt: options.oldRanges.get(b.id)!.end.toISOString(),
-              }
-            : {}),
+          previousStartAt:
+            (rangeChanged && options.oldRanges?.get(b.id)?.start.toISOString()) || null,
+          previousEndAt:
+            (rangeChanged && options.oldRanges?.get(b.id)?.end.toISOString()) || null,
           actor: actorUserId ? { userId: actorUserId } : { system: true },
+          cancelReason:
+            options.event === BookingEventType.CANCELLED ? (options.cancelReason ?? null) : null,
           occurredAt: new Date().toISOString(),
+          external: this.externalIds(b),
         },
       });
     }
+  }
+
+  /** Partner ids (LMS) for a booking at a partner-managed place, else null. Needs seat + place loaded. */
+  private externalIds(b: Booking): Record<string, string | null> | null {
+    const place = b.seat?.place;
+    if (!place?.externalSystem || !place.externalId) return null;
+    return {
+      system: place.externalSystem,
+      placeId: place.externalId,
+      seatId: b.seat.externalId ?? null,
+      // Phase 2 (account linking).
+      memberId: null,
+    };
   }
 
   alertPayload(
