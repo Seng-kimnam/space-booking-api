@@ -15,7 +15,10 @@ import { SeatStatus } from '../../common/enums';
 import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { SeatPageResponseDto, toSeatResponse } from '../dto/seat.response.dto';
-import { PlacesService } from '../../places/services/places.service';
+import {
+  assertNotPartnerManaged,
+  PlacesService,
+} from '../../places/services/places.service';
 import { PG_UNIQUE_VIOLATION, isPgError } from '../../common/utils/db-errors';
 
 // Seat queries filter on their place inside the same SQL (one round trip, and
@@ -23,6 +26,9 @@ import { PG_UNIQUE_VIOLATION, isPgError } from '../../common/utils/db-errors';
 // PlacesService call. Single-place checks go through PlacesService.
 const PLACE_VISIBLE =
   'EXISTS (SELECT 1 FROM places p WHERE p.id = seat.place_id AND p.deleted_at IS NULL AND p.is_active)';
+// Bookable also needs the partner (LMS) to have the place open; NULL = not partner-managed.
+const PLACE_BOOKABLE =
+  'EXISTS (SELECT 1 FROM places p WHERE p.id = seat.place_id AND p.deleted_at IS NULL AND p.is_active AND p.external_open IS NOT FALSE)';
 
 const AREA_MISMATCH = 'areaId does not belong to this place';
 
@@ -81,7 +87,7 @@ export class SeatsService {
       .getRepository(Seat)
       .createQueryBuilder('seat')
       .select(['seat.id', 'seat.placeId', 'seat.label'])
-      .where(PLACE_VISIBLE)
+      .where(PLACE_BOOKABLE)
       .andWhere('seat.id IN (:...seatIds)', { seatIds })
       .andWhere('seat.status = :status', { status: SeatStatus.ACTIVE })
       .getMany();
@@ -90,7 +96,7 @@ export class SeatsService {
 
   async create(placeId: string, dto: CreateSeatDto): Promise<Seat> {
     // Admins may add seats to inactive places, not to deleted ones (404).
-    await this.places.getPlace(placeId);
+    assertNotPartnerManaged(await this.places.getPlace(placeId));
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, placeId);
     const seat = await this.save(
       this.seats.create({
@@ -108,6 +114,7 @@ export class SeatsService {
 
   async update(seatId: string, dto: UpdateSeatDto): Promise<Seat> {
     const seat = await this.findAdmin(seatId);
+    assertNotPartnerManaged(await this.places.getPlace(seat.placeId));
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, seat.placeId);
     // Only values that differ are written: an unchanged value must not bump updated_at.
     const patch: QueryDeepPartialEntity<Seat> = {};
@@ -134,6 +141,7 @@ export class SeatsService {
     // shortcut: no seat.status_changed outbox event (api-endpoints.md:162) until messaging lands; add OutboxService.add in the same transaction then.
     // Live bookings stay valid on MAINTENANCE/UNAVAILABLE: findBookable already refuses new ones; the admin resolves existing ones.
     const seat = await this.findAdmin(seatId);
+    assertNotPartnerManaged(await this.places.getPlace(seat.placeId));
     // Same status: nothing to change, don't bump updated_at.
     if (seat.status === status) return seat;
     await this.write(seatId, { status });
@@ -146,6 +154,7 @@ export class SeatsService {
   /** Soft delete. 409 while the seat has a PENDING, CHECKED_IN or CHECKOUT_OVERDUE booking. */
   async softDelete(seatId: string): Promise<void> {
     const seat = await this.findAdmin(seatId);
+    assertNotPartnerManaged(await this.places.getPlace(seat.placeId));
     // shortcut: reads bookings directly; seats can't import bookings (bookings -> seats). Move behind a bookings port when one exists.
     // Known gap: a booking created between this check and the delete is not caught; closing it needs the booking transaction to lock the seat row (bookings' code).
     const [live] = await this.seats.manager.query(

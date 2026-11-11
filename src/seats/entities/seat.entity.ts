@@ -27,6 +27,11 @@ import { Place } from '../../places/entities/place.entity';
   where: 'deleted_at IS NULL',
 })
 @Index('seats_place_area_idx', ['placeId', 'areaId'])
+// Includes soft-deleted rows: a returning partner seat is restored, keeping its bookings.
+@Index('seats_place_external_uk', ['placeId', 'externalId'], {
+  unique: true,
+  where: 'external_id IS NOT NULL',
+})
 // GIN index; TypeORM can't express the index method, so it lives in the migration only.
 @Index('seats_features_gin_idx', { synchronize: false })
 export class Seat {
@@ -66,6 +71,10 @@ export class Seat {
     default: SeatStatus.ACTIVE,
   })
   status: SeatStatus;
+
+  // Partner's seat id when the place is partner-managed (places.external_system).
+  @Column({ name: 'external_id', type: 'varchar', length: 64, nullable: true })
+  externalId: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

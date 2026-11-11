@@ -23,8 +23,8 @@ import { BookingsService } from './services/bookings.service';
 
 /**
  * SEAT_LOOKUP is the real SeatsService and PLACE_RULES the real PlaceRulesService.
- * NO_SHOW_COUNTER and OUTBOX still come from InterimPortsModule until users and messaging merge
- * (see bookings.ports.ts). GET /seats/available and /seats/:id/availability
+ * OUTBOX comes from the global MessagingModule (OutboxService). NO_SHOW_COUNTER
+ * still comes from InterimPortsModule until users merges (see bookings.ports.ts). GET /seats/available and /seats/:id/availability
  * (seat-availability.controller) are still to do.
  */
 @Module({

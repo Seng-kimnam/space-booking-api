@@ -44,6 +44,8 @@
     "@nestjs/swagger": "^12.1.1",
     "@nestjs/throttler": "^6.7.1",
     "@nestjs/typeorm": "^12.0.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "amqp-connection-manager": "^5.0.1",
     "amqplib": "^2.2.1",
     "argon2": "^0.45.2",

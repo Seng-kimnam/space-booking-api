@@ -1,4 +1,4 @@
-# Local services: PostgreSQL, pgAdmin, Redis, Mailpit, Loki, Alloy, Grafana.
+# Local services: PostgreSQL, pgAdmin, Redis, Mailpit, RabbitMQ, Loki, Alloy, Grafana.
 # The API runs on your machine with `npm run start:dev`.
 #
 # From the repo root:
@@ -56,6 +56,27 @@ services:
       - "${MAIL_PORT:-1025}:1025"
       - "${MAILPIT_UI_PORT:-8025}:8025"
 
+  # Shared broker for Space Booking <-> LMS (docs/integration/lms-booking-events-now.md).
+  # After the first start, create the vhost and app users once:
+  #   docker compose ... exec rabbitmq sh /setup-dev.sh
+  # Management UI: http://localhost:15672 (admin user below is for people, not apps).
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_ADMIN_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASSWORD:-admin_dev}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ../../rabbitmq/setup-dev.sh:/setup-dev.sh:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
   # --- Monitoring: Loki (log storage) + Alloy (collector) + Grafana (UI) ---
   # Config files: infrastructure/monitoring/
   loki:
@@ -109,6 +130,7 @@ volumes:
   postgres_data:
   pgadmin_data:
   redis_data:
+  rabbitmq_data:
   loki_data:
   alloy_data:
   grafana_data:

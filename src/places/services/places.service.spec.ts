@@ -8,6 +8,7 @@ import { BookingPolicy } from '../entities/booking-policy.entity';
 import { PlaceClosure } from '../entities/place-closure.entity';
 import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 import { Place } from '../entities/place.entity';
+import type { OutboxService } from '../../messaging/outbox/outbox.service';
 import {
   PlacesService,
   definedOnly,
@@ -61,6 +62,7 @@ function service(opts: {
     { find: async () => [] } as unknown as Repository<PlaceOpeningHour>,
     {} as Repository<PlaceClosure>,
     {} as Repository<BookingPolicy>,
+    { add: jest.fn(async () => undefined) } as unknown as OutboxService,
   );
   return { svc, places, saved };
 }

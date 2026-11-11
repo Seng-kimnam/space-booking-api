@@ -252,6 +252,29 @@ export class BookingsRepository {
   }
 
   /**
+   * PENDING bookings at a place that start after `now`, locked (FOR UPDATE OF b).
+   * The partner place sync checks them against the new layout and hours.
+   */
+  async lockFuturePendingAtPlace(
+    manager: EntityManager,
+    placeId: string,
+    now: Date,
+  ): Promise<Booking[]> {
+    const rows: { id: string }[] = await manager.query(
+      `SELECT b.id
+         FROM bookings b
+         JOIN seats s ON s.id = b.seat_id
+        WHERE s.place_id = $1
+          AND b.status = 'PENDING'
+          AND lower(b.time_range) > $2
+        ORDER BY lower(b.time_range)
+        FOR UPDATE OF b`,
+      [placeId, now],
+    );
+    return this.findByIds(rows.map((r) => r.id), manager);
+  }
+
+  /**
    * CHECKED_IN bookings still not checked out at end + overdue_alert_minutes
    * (booking 10:00-11:00 -> overdue at 11:15 with the default policy).
    */
