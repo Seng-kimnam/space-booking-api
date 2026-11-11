@@ -25,6 +25,41 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
       .set('Authorization', `Bearer ${admin}`)
       .send(body);
 
+  // Own connections: the app pool is fully held by the blocked requests.
+  const conn = () =>
+    new Client({
+      host: process.env.DB_HOST ?? 'localhost',
+      port: Number(process.env.DB_PORT ?? 5432),
+      user: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+    });
+
+  // Waits until `n` sessions are queued behind the gate connection: blocked by it directly,
+  // or by another session that is (waiters on one row queue behind the first waiter).
+  // Other suites' lock waits are not behind the gate, so they cannot release a race early.
+  async function waitBlocked(observer: Client, gatePid: number, n: number) {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const {
+        rows: [{ blocked }],
+      } = await observer.query(
+        `WITH RECURSIVE waiting AS (
+           SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+           UNION
+           SELECT a.pid FROM pg_stat_activity a
+             JOIN waiting w ON w.pid = ANY(pg_blocking_pids(a.pid))
+         )
+         SELECT count(*)::int AS blocked FROM waiting`,
+        [gatePid],
+      );
+      if (blocked >= n) return;
+      if (Date.now() > deadline)
+        throw new Error(`only ${blocked} of ${n} requests blocked on the gate`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
   // Holds a row lock (`lockSql`) that the racing statements must wait on, fires the requests,
   // waits until all of them are blocked at the DB (proof they overlap), then releases them together.
   // Row locks, not LOCK TABLE, so suites running in parallel on `seats` are not blocked.
@@ -33,36 +68,18 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
     lockArgs: unknown[],
     fire: () => PromiseLike<request.Response>[],
   ) {
-    // Own connections: the app pool is fully held by the blocked requests.
-    const conn = () =>
-      new Client({
-        host: process.env.DB_HOST ?? 'localhost',
-        port: Number(process.env.DB_PORT ?? 5432),
-        user: process.env.DB_USERNAME,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-      });
     const gate = conn();
     const observer = conn();
     await Promise.all([gate.connect(), observer.connect()]);
     try {
+      const {
+        rows: [{ pid }],
+      } = await gate.query('SELECT pg_backend_pid() AS pid');
       await gate.query('BEGIN');
       await gate.query(lockSql, lockArgs);
       // supertest requests are lazy thenables: Promise.resolve() is what actually sends them
       const racing = fire().map((r) => Promise.resolve(r));
-      const deadline = Date.now() + 10_000;
-      for (;;) {
-        const {
-          rows: [{ n }],
-        } = await observer.query(
-          `SELECT count(*)::int AS n FROM pg_stat_activity
-           WHERE datname = current_database() AND wait_event_type = 'Lock'`,
-        );
-        if (n >= racing.length) break;
-        if (Date.now() > deadline)
-          throw new Error(`not all ${racing.length} requests arrived (${n})`);
-        await new Promise((r) => setTimeout(r, 25));
-      }
+      await waitBlocked(observer, pid, racing.length);
       await gate.query('COMMIT');
       return await Promise.all(racing);
     } finally {
@@ -75,14 +92,6 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
   // `meanwhile` runs while the PATCH is parked, then the lock is released.
   // LOCK TABLE briefly blocks other suites that read `areas`; it is held only for `meanwhile`.
   async function parkUpdate(seatId: string, meanwhile: () => Promise<void>) {
-    const conn = () =>
-      new Client({
-        host: process.env.DB_HOST ?? 'localhost',
-        port: Number(process.env.DB_PORT ?? 5432),
-        user: process.env.DB_USERNAME,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-      });
     const gate = conn();
     const observer = conn();
     await Promise.all([gate.connect(), observer.connect()]);
@@ -96,19 +105,7 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
       const parked = Promise.resolve(
         send('patch', `/admin/seats/${seatId}`, { areaId: A }),
       );
-      const deadline = Date.now() + 10_000;
-      for (;;) {
-        // Only sessions blocked by the gate itself count, not other suites' lock waits.
-        const {
-          rows: [{ n }],
-        } = await observer.query(
-          `SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`,
-          [pid],
-        );
-        if (n >= 1) break;
-        if (Date.now() > deadline) throw new Error('PATCH never parked');
-        await new Promise((r) => setTimeout(r, 25));
-      }
+      await waitBlocked(observer, pid, 1);
       await meanwhile();
       await gate.query('COMMIT');
       return await parked;
@@ -241,15 +238,13 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
     };
     const spySave = jest
       .spyOn(repo, 'save')
-      .mockImplementation(
-        (...args: Parameters<typeof realSave>) =>
-          firstWrite(() => realSave(...args)),
+      .mockImplementation((...args: Parameters<typeof realSave>) =>
+        firstWrite(() => realSave(...args)),
       );
     const spyUpdate = jest
       .spyOn(repo, 'update')
-      .mockImplementation(
-        (...args: Parameters<typeof realUpdate>) =>
-          firstWrite(() => realUpdate(...args)),
+      .mockImplementation((...args: Parameters<typeof realUpdate>) =>
+        firstWrite(() => realUpdate(...args)),
       );
     try {
       const r = await send('patch', `/admin/seats/${id}/status`, {
