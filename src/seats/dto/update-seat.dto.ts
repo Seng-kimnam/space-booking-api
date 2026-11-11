@@ -24,7 +24,7 @@ export class UpdateSeatDto {
   })
   label?: string;
 
-  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true })
   @ValidateIf((_, v) => v !== undefined && v !== null)
   @IsUUID()
   areaId?: string | null;
