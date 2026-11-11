@@ -46,6 +46,11 @@ export class User {
   // Password-reset codes live in user_otps (purpose PASSWORD_RESET), not on users
   // (AGENTS.md section 5, docs/erd.md).
 
+  // false = suspended: login and refresh are refused (AuthService). The column
+  // has existed since the initial schema; it just wasn't mapped.
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
   @Column({ name: 'no_show_count', type: 'int', default: 0 })
   noShowCount: number;
 

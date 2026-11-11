@@ -3,6 +3,7 @@ import { ConfigType } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { VALIDATION_PIPE_OPTIONS } from '../../src/common/validation-pipe.options';
+import { configureHttp } from '../../src/common/http-setup';
 import { appConfig } from '../../src/configuration';
 
 // Builds the Nest app for e2e tests, the way main.ts builds it for production.
@@ -25,6 +26,9 @@ export async function createTestApp(): Promise<INestApplication> {
     app.get<ConfigType<typeof appConfig>>(appConfig.KEY).globalPrefix,
   );
   app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
+  // Same middleware as main.ts (request id + Helmet). Swagger isn't served in
+  // e2e apps, so the production header set (with CSP) is what gets tested.
+  configureHttp(app, { swaggerEnabled: false });
   await app.init();
   return app;
 }

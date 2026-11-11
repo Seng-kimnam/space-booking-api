@@ -11,6 +11,7 @@ import {
 } from './configuration';
 import { AppLogger } from './logger/app-logger';
 import { VALIDATION_PIPE_OPTIONS } from './common/validation-pipe.options';
+import { configureHttp } from './common/http-setup';
 
 async function bootstrap() {
   // Buffer startup logs until our logger is attached, so they share its format.
@@ -24,6 +25,7 @@ async function bootstrap() {
   app.setGlobalPrefix(config.globalPrefix);
 
   const swaggerEnabled = isSwaggerEnabled(config.nodeEnv);
+  configureHttp(app, { swaggerEnabled });
   if (swaggerEnabled) {
     setupSwagger(app);
   }

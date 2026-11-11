@@ -2,18 +2,16 @@ import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 
-// Signs an access token with the app's own JwtService (same secret and expiry
-// as login), for e2e tests of endpoints other than /auth/*.
-// Why not register -> verify-email -> login over HTTP: login requires a
-// verified email, and the OTP is only stored as a hash and sent by mail, so a
-// test would have to read it from Mailpit. Auth e2e tests should do that flow;
-// everyone else just needs a valid token. AuthGuard only verifies the JWT
-// (no DB lookup), so `sub` doesn't need to be a real user.
+// Signs an access token with the app's own JwtService (same secret, algorithm,
+// issuer/audience and expiry as login), for e2e tests of endpoints other than
+// the login flow itself. AuthGuard only verifies the JWT (no DB lookup), so by
+// default `sub` is a random UUID. Pass a real user id when the service reads
+// the caller from the database (admin approval, account suspension).
+// The payload matches AuthService.issueSession: { sub, role }, no email.
 export function signToken(
   app: INestApplication,
-  role: 'ADMIN' | 'USER',
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'USER',
+  sub: string = randomUUID(),
 ): Promise<string> {
-  return app
-    .get(JwtService)
-    .signAsync({ sub: randomUUID(), email: `${role}@example.com`, role });
+  return app.get(JwtService).signAsync({ sub, role });
 }

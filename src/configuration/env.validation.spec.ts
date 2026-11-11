@@ -26,6 +26,9 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...valid, JWT_ACCESS_EXPIRES_IN: '900' }),
     ).not.toThrow();
+    expect(() =>
+      validateEnv({ ...valid, MAIL_SECURE: 'true', MAIL_REQUIRE_TLS: 'false' }),
+    ).not.toThrow();
   });
 
   it.each([
@@ -40,6 +43,8 @@ describe('validateEnv', () => {
     ],
     ['bad PORT', { PORT: 'abc' }, 'PORT'],
     ['bad NODE_ENV', { NODE_ENV: 'staging' }, 'NODE_ENV'],
+    ['bad MAIL_SECURE', { MAIL_SECURE: 'yes' }, 'MAIL_SECURE'],
+    ['bad MAIL_REQUIRE_TLS', { MAIL_REQUIRE_TLS: '1' }, 'MAIL_REQUIRE_TLS'],
   ])('rejects %s, naming the variable', (_, override, name) => {
     expect(() => validateEnv({ ...valid, ...override })).toThrow(name);
   });

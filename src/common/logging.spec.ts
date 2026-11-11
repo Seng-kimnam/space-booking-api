@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthGuard } from '../auth/auth.guard';
+import { AuthService } from '../auth/auth.service';
 import { MailService } from '../auth/mail.service';
 import { BookingLifecycleService } from '../bookings/services/booking-lifecycle.service';
 import { BookingQrService } from '../bookings/services/booking-qr.service';
@@ -57,6 +58,8 @@ describe('MailService logging', () => {
         'mail.host': 'localhost',
         'mail.port': 1025,
         'mail.from': 'no-reply@x',
+        'mail.secure': false,
+        'mail.requireTls': false,
       })[key],
   } as unknown as ConfigService;
   const withTransport = (sendMail: jest.Mock) => {
@@ -97,6 +100,70 @@ describe('MailService logging', () => {
     );
     // The SMTP text echoes the address: it must not be logged.
     expect(allLines()).not.toMatch(/alice@example\.com|654321/);
+  });
+});
+
+describe('AuthService logging', () => {
+  // Minimal fakes: only what each path touches.
+  const service = (deps: {
+    users?: object;
+    refreshTokens?: object;
+    dataSource?: object;
+  }) =>
+    new AuthService(
+      (deps.users ?? {}) as never,
+      (deps.refreshTokens ?? {}) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      (deps.dataSource ?? {}) as never,
+    );
+
+  it('warns on a failed login with the user id only, never the email or password', async () => {
+    const svc = service({ users: { findOneBy: jest.fn().mockResolvedValue(null) } });
+
+    await expect(svc.login('alice@example.com', 'S3cret-Passw0rd')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(spies.warn).toHaveBeenCalledWith('Login failed: user=unknown');
+    expect(allLines()).not.toMatch(/alice@example\.com|S3cret-Passw0rd/);
+  });
+
+  it('warns on refresh-token reuse with ids only, never the token', async () => {
+    const qb = {
+      update: () => qb,
+      set: () => qb,
+      where: () => qb,
+      returning: () => qb,
+      execute: async () => ({ raw: [] }),
+    };
+    const refreshTokens = {
+      createQueryBuilder: () => qb,
+      findOneBy: jest
+        .fn()
+        // Rotated an hour ago: outside the grace window, so this is reuse.
+        .mockResolvedValue({
+          id: 'rt-1',
+          userId: 'u-1',
+          replacedById: 'rt-2',
+          revokedAt: new Date(Date.now() - 3_600_000),
+        }),
+      update: jest.fn().mockResolvedValue({ affected: 3 }),
+    };
+    const manager = { getRepository: () => refreshTokens };
+    const svc = service({
+      refreshTokens,
+      dataSource: { manager, transaction: (fn: (m: object) => unknown) => fn(manager) },
+    });
+
+    await expect(svc.refresh('leaked.refresh.value')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(spies.warn).toHaveBeenCalledWith(
+      'Refresh token reuse detected: user=u-1 token=rt-1 revokedSessions=3',
+    );
+    expect(allLines()).not.toContain('leaked.refresh.value');
   });
 });
 

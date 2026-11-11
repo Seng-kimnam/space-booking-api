@@ -22,7 +22,9 @@ export class MailService {
     this.transporter = nodemailer.createTransport({
       host: this.configService.getOrThrow<string>('mail.host'),
       port: this.configService.getOrThrow<number>('mail.port'),
-      secure: false,
+      // TLS settings come from mail.config.ts (MAIL_SECURE, MAIL_REQUIRE_TLS).
+      secure: this.configService.getOrThrow<boolean>('mail.secure'),
+      requireTLS: this.configService.getOrThrow<boolean>('mail.requireTls'),
     });
     this.from = this.configService.getOrThrow<string>('mail.from');
   }
@@ -36,24 +38,45 @@ export class MailService {
       purpose === 'EMAIL_VERIFY'
         ? 'Verify your Space Booking account'
         : 'Reset your Space Booking password';
+    await this.send(
+      email,
+      subject,
+      `Your one-time code is ${otp}. It expires in 10 minutes.`,
+      purpose,
+    );
+  }
 
+  /** Security notice after a password change or reset. Contains no secret. */
+  async sendPasswordChanged(email: string): Promise<void> {
+    await this.send(
+      email,
+      'Your Space Booking password was changed',
+      'Your password was just changed and you were signed out on every device. ' +
+        'If this was not you, reset your password now and contact support.',
+      'PASSWORD_CHANGED',
+    );
+  }
+
+  private async send(
+    to: string,
+    subject: string,
+    text: string,
+    purpose: string,
+  ): Promise<void> {
+    const kind = purpose === 'PASSWORD_CHANGED' ? 'Notice' : 'OTP';
     try {
-      await this.transporter.sendMail({
-        from: this.from,
-        to: email,
-        subject,
-        text: `Your one-time code is ${otp}. It expires in 10 minutes.`,
-      });
+      await this.transporter.sendMail({ from: this.from, to, subject, text });
     } catch (err) {
       const { code, responseCode, command } = (err ?? {}) as SmtpErrorInfo;
       this.logger.error(
-        `OTP email not sent: purpose=${purpose} code=${code ?? 'unknown'}` +
+        `${kind} email not sent: purpose=${purpose} code=${code ?? 'unknown'}` +
           (responseCode ? ` smtp=${responseCode}` : '') +
           (command ? ` command=${command}` : ''),
       );
-      // Unchanged behaviour: the caller still sees the failure.
+      // The caller decides whether a failure matters (AuthService doesn't
+      // await mail on the request path, so it never reaches the client).
       throw err;
     }
-    this.logger.log(`OTP email sent: purpose=${purpose}`);
+    this.logger.log(`${kind} email sent: purpose=${purpose}`);
   }
 }
