@@ -88,6 +88,7 @@ export class AdminSeatsController {
   @ApiNoContentResponse()
   @ApiBadRequestResponse()
   @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'Seat still has active bookings' })
   softDelete(@Param('seatId', ParseUUIDPipe) seatId: string) {
     return this.seats.softDelete(seatId);
   }

@@ -172,7 +172,7 @@ describe('seats Swagger contract', () => {
     [
       'delete',
       '/api/v1/admin/seats/{seatId}',
-      ['204', '400', '401', '403', '404'],
+      ['204', '400', '401', '403', '404', '409'],
     ],
   ])('%s %s documents responses %j', (method, path, codes) => {
     const op = (doc.paths[path] as Record<string, any>)?.[method]; // any: OpenAPI operation shape is not needed here

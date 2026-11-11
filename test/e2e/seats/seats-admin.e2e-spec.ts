@@ -15,6 +15,8 @@ describe('seats admin writes (real Postgres)', () => {
   const placeIds: string[] = [];
   const areaIds: string[] = [];
   const seatIds: string[] = [];
+  const userIds: string[] = [];
+  const bookingIds: string[] = [];
   let P: string;
   let P2: string;
   let A: string;
@@ -36,6 +38,55 @@ describe('seats admin writes (real Postgres)', () => {
   };
   const lbl = () => `s-${randomUUID().slice(0, 8)}`;
 
+  const insertUser = async () => {
+    // CHK_users_has_credential requires a password_hash or a google_id.
+    const [row] = await ds.query(
+      `INSERT INTO users (name, email, role_id, password_hash)
+       VALUES ($1, $2, (SELECT id FROM roles WHERE name = $3), 'test-hash') RETURNING id`,
+      ['Seat test', `seat-${randomUUID()}@example.test`, 'USER'],
+    );
+    userIds.push(row.id);
+    return row.id as string;
+  };
+
+  // One booking tomorrow, +1d .. +1d+1h. The timestamps the bookings_* CHECK
+  // constraints require depend on the status (docs/schema/db.sql).
+  const insertBooking = async (
+    seatId: string,
+    userId: string,
+    status: string,
+  ) => {
+    const range = `tstzrange(now() + interval '1 day', now() + interval '1 day 1 hour', '[)')`;
+    let sql: string;
+    const params: unknown[] = [seatId, userId, status];
+    switch (status) {
+      case 'CHECKED_IN':
+      case 'CHECKOUT_OVERDUE':
+        sql = `INSERT INTO bookings (seat_id, user_id, status, time_range, checked_in_at, check_in_method)
+               VALUES ($1, $2, $3::booking_status, ${range}, now(), 'MANUAL') RETURNING id`;
+        break;
+      case 'COMPLETED':
+        sql = `INSERT INTO bookings (seat_id, user_id, status, time_range, checked_in_at, check_in_method, checked_out_at, check_out_method)
+               VALUES ($1, $2, $3::booking_status, ${range}, now() - interval '1 hour', 'MANUAL', now(), 'MANUAL') RETURNING id`;
+        break;
+      case 'CANCELLED':
+        sql = `INSERT INTO bookings (seat_id, user_id, status, time_range, cancelled_at)
+               VALUES ($1, $2, $3::booking_status, ${range}, now()) RETURNING id`;
+        break;
+      case 'EXPIRED':
+        sql = `INSERT INTO bookings (seat_id, user_id, status, time_range, expired_at)
+               VALUES ($1, $2, $3::booking_status, ${range}, now()) RETURNING id`;
+        break;
+      default: // PENDING: no extra timestamps
+        sql = `INSERT INTO bookings (seat_id, user_id, status, time_range)
+               VALUES ($1, $2, $3::booking_status, ${range}) RETURNING id`;
+        break;
+    }
+    const [row] = await ds.query(sql, params);
+    bookingIds.push(row.id);
+    return row.id as string;
+  };
+
   beforeAll(async () => {
     app = await createTestApp();
     ds = app.get(DataSource);
@@ -49,6 +100,8 @@ describe('seats admin writes (real Postgres)', () => {
   });
 
   afterAll(async () => {
+    await deleteRows(ds, 'bookings', bookingIds);
+    await deleteRows(ds, 'users', userIds);
     await deleteRows(ds, 'seats', seatIds);
     await deleteRows(ds, 'areas', areaIds);
     await deleteRows(ds, 'places', placeIds);
@@ -571,6 +624,57 @@ describe('seats admin writes (real Postgres)', () => {
       await api('delete', `/admin/seats/${made.id}`, admin).expect(404);
       await api('get', `/seats/${made.id}`).expect(404);
       expect((await create(P, { label })).status).toBe(201);
+    });
+
+    describe('live bookings', () => {
+      it.each(['PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE'])(
+        '409 while the seat has a %s booking, seat still readable',
+        async (status) => {
+          const made = (await create(P, { label: lbl() })).body;
+          await insertBooking(made.id, await insertUser(), status);
+          const res = await api('delete', `/admin/seats/${made.id}`, admin);
+          expect(res.status).toBe(409);
+          expect(res.body.message).toBe(
+            'Seat still has active bookings; cancel or complete them first',
+          );
+          await api('get', `/seats/${made.id}`).expect(200);
+        },
+      );
+
+      it('204 when the seat only has CANCELLED, COMPLETED and EXPIRED bookings', async () => {
+        const made = (await create(P, { label: lbl() })).body;
+        const u = await insertUser();
+        for (const status of ['CANCELLED', 'COMPLETED', 'EXPIRED'])
+          await insertBooking(made.id, u, status);
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
+      });
+
+      it('204 once the live booking is cancelled', async () => {
+        const made = (await create(P, { label: lbl() })).body;
+        const bookingId = await insertBooking(
+          made.id,
+          await insertUser(),
+          'PENDING',
+        );
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(409);
+        await ds.query(
+          `UPDATE bookings SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1`,
+          [bookingId],
+        );
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
+      });
+
+      it('status change to MAINTENANCE is allowed with a live booking', async () => {
+        const made = (await create(P, { label: lbl() })).body;
+        await insertBooking(made.id, await insertUser(), 'PENDING');
+        const res = await api(
+          'patch',
+          `/admin/seats/${made.id}/status`,
+          admin,
+        ).send({ status: 'MAINTENANCE' });
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe('MAINTENANCE');
+      });
     });
   });
 

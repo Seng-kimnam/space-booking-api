@@ -299,12 +299,24 @@ describe('SeatsService', () => {
 
     it('logs a soft delete', async () => {
       const repo = repoWithSeat(seatRow());
+      repo.manager.query = async () => []; // no live bookings
       await new SeatsService(
         repo as unknown as Repository<Seat>,
         places(),
       ).softDelete('s1');
       expect(repo.softDelete).toHaveBeenCalledWith('s1');
       expect(log).toHaveBeenCalledWith('Seat deleted: id=s1 place=p label=A1');
+    });
+
+    it('softDelete throws 409 and does not delete while the seat has a live booking', async () => {
+      const repo = repoWithSeat(seatRow()); // default query returns [{}]: a live booking
+      await expect(
+        new SeatsService(repo as unknown as Repository<Seat>, places()).softDelete(
+          's1',
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
   });
 

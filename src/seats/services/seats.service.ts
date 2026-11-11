@@ -132,7 +132,7 @@ export class SeatsService {
 
   async setStatus(seatId: string, status: SeatStatus): Promise<Seat> {
     // shortcut: no seat.status_changed outbox event (api-endpoints.md:162) until messaging lands; add OutboxService.add in the same transaction then.
-    // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
+    // Live bookings stay valid on MAINTENANCE/UNAVAILABLE: findBookable already refuses new ones; the admin resolves existing ones.
     const seat = await this.findAdmin(seatId);
     // Same status: nothing to change, don't bump updated_at.
     if (seat.status === status) return seat;
@@ -143,9 +143,21 @@ export class SeatsService {
     return this.findAdmin(seatId);
   }
 
+  /** Soft delete. 409 while the seat has a PENDING, CHECKED_IN or CHECKOUT_OVERDUE booking. */
   async softDelete(seatId: string): Promise<void> {
-    // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
     const seat = await this.findAdmin(seatId);
+    // shortcut: reads bookings directly; seats can't import bookings (bookings -> seats). Move behind a bookings port when one exists.
+    // Known gap: a booking created between this check and the delete is not caught; closing it needs the booking transaction to lock the seat row (bookings' code).
+    const [live] = await this.seats.manager.query(
+      "SELECT 1 FROM bookings WHERE seat_id = $1 AND status IN ('PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE') LIMIT 1",
+      [seatId],
+    );
+    if (live) {
+      this.logger.warn(`Seat delete rejected: active bookings (id=${seatId})`);
+      throw new ConflictException(
+        'Seat still has active bookings; cancel or complete them first',
+      );
+    }
     await this.seats.softDelete(seatId);
     this.logger.log(
       `Seat deleted: id=${seatId} place=${seat.placeId} label=${seat.label}`,
