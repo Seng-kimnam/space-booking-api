@@ -35,10 +35,10 @@ export class RabbitConnection implements OnModuleDestroy {
       });
       this.manager.on('connect', () => this.logger.log('Connected to RabbitMQ'));
       this.manager.on('disconnect', ({ err }) =>
-        this.logger.warn(`Disconnected from RabbitMQ: ${err?.name ?? 'unknown'}`),
+        this.logger.warn(`Disconnected from RabbitMQ: ${describe(err)}`),
       );
       this.manager.on('connectFailed', ({ err }) =>
-        this.logger.warn(`RabbitMQ connection failed: ${err?.name ?? 'unknown'}`),
+        this.logger.warn(`RabbitMQ connection failed: ${describe(err)}`),
       );
     }
     return this.manager;
@@ -47,4 +47,13 @@ export class RabbitConnection implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     await this.manager?.close().catch(() => undefined);
   }
+}
+
+/**
+ * The broker's reason (e.g. ECONNREFUSED, 403 ACCESS-REFUSED, vhost not found),
+ * with any amqp://user:password@ removed so credentials never reach the log.
+ */
+function describe(err: unknown): string {
+  if (!(err instanceof Error)) return 'unknown error';
+  return `${err.name}: ${err.message}`.replace(/amqps?:\/\/[^@\s]*@/gi, 'amqp://***@').slice(0, 300);
 }

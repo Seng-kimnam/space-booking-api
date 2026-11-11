@@ -46,6 +46,8 @@ import {
 import { AttendanceService } from '../services/attendance.service';
 import { BookingQrService } from '../services/booking-qr.service';
 import { BookingsService } from '../services/bookings.service';
+import { Publishes } from '../../messaging/contract/publishes.decorator';
+import { MessageType } from '../../messaging/contract/schemas';
 
 const uuid = new ParseUUIDPipe({ version: 'all' });
 
@@ -61,6 +63,7 @@ export class BookingsController {
   ) {}
 
   @Post()
+  @Publishes(MessageType.BOOKING_CREATED)
   @ApiOperation({
     summary: 'Reserve one or more seats',
     description:
@@ -121,6 +124,7 @@ export class BookingsController {
   }
 
   @Patch(':bookingId')
+  @Publishes(MessageType.BOOKING_MODIFIED)
   @ApiOperation({ summary: 'Change date/time (not started, before the modify cutoff)' })
   @ApiOkResponse({ type: BookingGroupResponseDto })
   @ApiConflictResponse({ description: 'Seat taken at the new time, or too late to modify' })
@@ -134,6 +138,7 @@ export class BookingsController {
   }
 
   @Post(':bookingId/cancel')
+  @Publishes(MessageType.BOOKING_CANCELLED)
   @HttpCode(200)
   @ApiOperation({ summary: 'Cancel (not started, before the cutoff)' })
   @ApiOkResponse({ type: BookingGroupResponseDto })
@@ -147,6 +152,7 @@ export class BookingsController {
   }
 
   @Post(':bookingId/extend')
+  @Publishes(MessageType.BOOKING_EXTENDED)
   @HttpCode(200)
   @ApiOperation({ summary: 'Extend the end time' })
   @ApiOkResponse({ type: BookingGroupResponseDto })

@@ -16,6 +16,8 @@ import { UserRole } from '../../common/enums';
 import { LibraryPlaceSyncStatusDto, LibraryResyncResponseDto } from './dto/library-place.dto';
 import { LibraryPlaceRepairService } from './library-place-repair.service';
 import { LibraryPlaceSyncService } from './library-place-sync.service';
+import { Publishes } from '../../messaging/contract/publishes.decorator';
+import { MessageType } from '../../messaging/contract/schemas';
 
 const LMS_ID = 'placeId';
 // LMS place ids: same rule as the contract (place.snapshot.v1.json).
@@ -54,6 +56,7 @@ export class AdminLibraryPlacesController {
   constructor(private readonly repair: LibraryPlaceRepairService) {}
 
   @Post(`:${LMS_ID}/resync`)
+  @Publishes(MessageType.PLACE_SYNC_APPLIED, MessageType.PLACE_SYNC_REJECTED, MessageType.BOOKING_CANCELLED)
   @HttpCode(200)
   @ApiOperation({ summary: 'Fetch the place snapshot from LMS over HTTP and apply it' })
   @ApiParam({ name: LMS_ID, description: 'LMS place id', example: '1' })

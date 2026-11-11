@@ -33,6 +33,8 @@ import {
 } from '../dto/booking-response.dto';
 import { AttendanceService } from '../services/attendance.service';
 import { BookingsService } from '../services/bookings.service';
+import { Publishes } from '../../messaging/contract/publishes.decorator';
+import { MessageType } from '../../messaging/contract/schemas';
 
 const uuid = new ParseUUIDPipe({ version: 'all' });
 
@@ -62,6 +64,7 @@ export class AdminBookingsController {
   }
 
   @Patch(':bookingId/status')
+  @Publishes(MessageType.BOOKING_CANCELLED, MessageType.BOOKING_CHECKED_OUT)
   @ApiOperation({ summary: 'Cancel a booking, or resolve a forgotten checkout' })
   @ApiOkResponse({ type: BookingResponseDto })
   @ApiConflictResponse({ description: 'Not allowed from the current status' })
@@ -78,6 +81,7 @@ export class AdminBookingsController {
   }
 
   @Post(':bookingId/check-in')
+  @Publishes(MessageType.BOOKING_CHECKED_IN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Manual check-in' })
   @ApiOkResponse({ type: AttendanceResponseDto })
@@ -89,6 +93,7 @@ export class AdminBookingsController {
   }
 
   @Post(':bookingId/check-out')
+  @Publishes(MessageType.BOOKING_CHECKED_OUT)
   @HttpCode(200)
   @ApiOperation({ summary: 'Manual check-out' })
   @ApiOkResponse({ type: AttendanceResponseDto })

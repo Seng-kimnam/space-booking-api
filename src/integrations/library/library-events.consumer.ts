@@ -10,12 +10,13 @@ import {
   LIBRARY_SYSTEM,
   LibraryRoutingKey,
 } from './library.constants';
+import { LibraryLinksService } from './library-links.service';
 import { LibraryPlaceSyncService } from './library-place-sync.service';
 
 /**
  * Consumes `library.events` (LMS) on `space-booking.library-events`.
- * Bound keys (one by one, contract section 2): place.created, place.updated.
- * member.standing_changed (phase 3) gets a handler and binding when built.
+ * Bound keys (one by one, contract section 2): place.created, place.updated,
+ * member.standing_changed.
  */
 @Injectable()
 export class LibraryEventsConsumer implements OnApplicationBootstrap {
@@ -24,6 +25,7 @@ export class LibraryEventsConsumer implements OnApplicationBootstrap {
   constructor(
     private readonly runner: ConsumerRunner,
     private readonly sync: LibraryPlaceSyncService,
+    private readonly links: LibraryLinksService,
     @Inject(integrationsConfig.KEY)
     private readonly config: ConfigType<typeof integrationsConfig>,
   ) {}
@@ -41,6 +43,8 @@ export class LibraryEventsConsumer implements OnApplicationBootstrap {
       [LibraryRoutingKey.PLACE_UPDATED]: async (manager, envelope) => {
         await this.sync.apply(manager, envelope);
       },
+      [LibraryRoutingKey.MEMBER_STANDING_CHANGED]: (manager, envelope) =>
+        this.links.applyStanding(manager, envelope),
     },
   };
 
