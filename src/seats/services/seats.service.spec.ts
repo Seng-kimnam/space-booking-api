@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { QueryFailedError, Repository } from 'typeorm';
+import { IsNull, QueryFailedError, Repository } from 'typeorm';
 import { Seat } from '../entities/seat.entity';
 import { SeatStatus } from '../../common/enums';
 import { toSeatResponse } from '../dto/seat.response.dto';
@@ -57,6 +57,7 @@ const repoWithSeat = (seat: Seat | null) => {
     createQueryBuilder: () => qb,
     create: (v: object) => ({ id: 's1', ...v }),
     save: jest.fn(async (v: Seat) => v),
+    update: jest.fn(async () => ({ affected: 1 })),
     softDelete: jest.fn(async () => undefined),
     manager: { query: async () => [{}] },
   };
@@ -186,17 +187,136 @@ describe('SeatsService', () => {
       ).setStatus('s1', SeatStatus.ACTIVE);
       expect(result.status).toBe(SeatStatus.ACTIVE);
       expect(repo.save).not.toHaveBeenCalled();
+      expect(repo.update).not.toHaveBeenCalled();
       expect(log).not.toHaveBeenCalled();
+    });
+
+    it('update writes only the changed columns', async () => {
+      const repo = repoWithSeat(seatRow());
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'B2' });
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 's1', deletedAt: IsNull() },
+        { label: 'B2' },
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('update passes areaId null through and leaves other columns out', async () => {
+      const repo = repoWithSeat(seatRow({ areaId: 'area-1' }));
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { areaId: null });
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 's1', deletedAt: IsNull() },
+        { areaId: null },
+      );
+    });
+
+    it('update skips columns whose value is unchanged', async () => {
+      const repo = repoWithSeat(
+        seatRow({ label: 'A1', areaId: null, features: { power: true } }),
+      );
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'A1', areaId: null, features: { power: true } });
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=none');
+    });
+
+    it('update writes only the columns that differ', async () => {
+      const repo = repoWithSeat(
+        seatRow({ label: 'A1', areaId: null, features: { power: true } }),
+      );
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'A1', features: { power: false } });
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 's1', deletedAt: IsNull() },
+        { features: { power: false } },
+      );
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=features');
+    });
+
+    it('update with an empty body issues no write', async () => {
+      const repo = repoWithSeat(seatRow());
+      const result = await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', {});
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=none');
+      expect(result.id).toBe('s1');
+    });
+
+    it('setStatus writes only the status column', async () => {
+      const repo = repoWithSeat(seatRow());
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).setStatus('s1', SeatStatus.MAINTENANCE);
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 's1', deletedAt: IsNull() },
+        { status: SeatStatus.MAINTENANCE },
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('update and setStatus throw 404 when the write matches no live row', async () => {
+      const repo = repoWithSeat(seatRow());
+      repo.update.mockResolvedValue({ affected: 0 });
+      const svc = new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      );
+      await expect(svc.update('s1', { label: 'B2' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(
+        svc.setStatus('s1', SeatStatus.MAINTENANCE),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('update maps a unique-label violation from the write to 409 and warns', async () => {
+      const repo = repoWithSeat(seatRow());
+      repo.update.mockRejectedValue(dbError('23505', 'seats_place_label_uk'));
+      await expect(
+        new SeatsService(repo as unknown as Repository<Seat>, places()).update(
+          's1',
+          { label: 'B2' },
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it('logs a soft delete', async () => {
       const repo = repoWithSeat(seatRow());
+      repo.manager.query = async () => []; // no live bookings
       await new SeatsService(
         repo as unknown as Repository<Seat>,
         places(),
       ).softDelete('s1');
       expect(repo.softDelete).toHaveBeenCalledWith('s1');
       expect(log).toHaveBeenCalledWith('Seat deleted: id=s1 place=p label=A1');
+    });
+
+    it('softDelete throws 409 and does not delete while the seat has a live booking', async () => {
+      const repo = repoWithSeat(seatRow()); // default query returns [{}]: a live booking
+      await expect(
+        new SeatsService(repo as unknown as Repository<Seat>, places()).softDelete(
+          's1',
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
   });
 

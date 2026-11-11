@@ -5,6 +5,7 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
   ValidationOptions,
   registerDecorator,
 } from 'class-validator';
@@ -12,6 +13,9 @@ import {
 const MAX_KEYS = 20;
 const MAX_KEY_LEN = 30;
 const MAX_STR_LEN = 50;
+
+// Unicode category Cc (newline, tab, NUL, ...): never valid in a label and would break log lines.
+export const NO_CONTROL_CHARS = /^\P{Cc}*$/u;
 
 function isSeatFeatures(value: unknown): boolean {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
@@ -45,10 +49,18 @@ export function IsSeatFeatures(options?: ValidationOptions) {
 }
 
 export class CreateSeatDto {
-  @ApiProperty({ minLength: 1, maxLength: 30, example: 'A1' })
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 30,
+    description: 'Trimmed. Must not contain control characters.',
+    example: 'A1',
+  })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @Length(1, 30)
+  @Matches(NO_CONTROL_CHARS, {
+    message: 'label must not contain control characters',
+  })
   label: string;
 
   @ApiPropertyOptional({ format: 'uuid' })

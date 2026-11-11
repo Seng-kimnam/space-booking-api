@@ -6,12 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  EntityManager,
-  QueryFailedError,
-  Repository,
-  SelectQueryBuilder,
-} from 'typeorm';
+import { EntityManager, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
+import { isDeepStrictEqual } from 'node:util';
 import { Seat } from '../entities/seat.entity';
 import { PlaceSeatQueryDto, SeatQueryDto } from '../dto/seat-query.dto';
 import { SeatStatus } from '../../common/enums';
@@ -19,6 +16,7 @@ import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { SeatPageResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 import { PlacesService } from '../../places/services/places.service';
+import { PG_UNIQUE_VIOLATION, isPgError } from '../../common/utils/db-errors';
 
 // Seat queries filter on their place inside the same SQL (one round trip, and
 // the filter composes with pagination), so this stays a subquery rather than a
@@ -28,15 +26,12 @@ const PLACE_VISIBLE =
 
 const AREA_MISMATCH = 'areaId does not belong to this place';
 
+const PG_FOREIGN_KEY_VIOLATION = '23503'; // not in common/utils/db-errors.ts yet
+
 function mapDbError(err: unknown): unknown {
-  if (!(err instanceof QueryFailedError)) return err;
-  const { code, constraint } = err.driverError as {
-    code?: string;
-    constraint?: string;
-  };
-  if (code === '23505' && constraint === 'seats_place_label_uk')
+  if (isPgError(err, PG_UNIQUE_VIOLATION, 'seats_place_label_uk'))
     return new ConflictException('Seat label already exists in this place');
-  if (code === '23503' && constraint === 'seats_area_same_place_fk')
+  if (isPgError(err, PG_FOREIGN_KEY_VIOLATION, 'seats_area_same_place_fk'))
     return new BadRequestException(AREA_MISMATCH);
   return err;
 }
@@ -114,39 +109,55 @@ export class SeatsService {
   async update(seatId: string, dto: UpdateSeatDto): Promise<Seat> {
     const seat = await this.findAdmin(seatId);
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, seat.placeId);
-    if (dto.label !== undefined) seat.label = dto.label;
-    if (dto.areaId !== undefined) seat.areaId = dto.areaId;
-    if (dto.features !== undefined) seat.features = dto.features;
-    // The loaded relation would override areaId on save.
-    delete (seat as Partial<Seat>).area;
-    const saved = await this.save(seat);
-    const changed = Object.keys(dto).filter(
-      (k) => dto[k as keyof UpdateSeatDto] !== undefined,
-    );
-    this.logger.log(
-      `Seat updated: id=${seatId} fields=${changed.join(',') || 'none'}`,
-    );
-    return saved;
+    // Only values that differ are written: an unchanged value must not bump updated_at.
+    const patch: QueryDeepPartialEntity<Seat> = {};
+    if (dto.label !== undefined && dto.label !== seat.label)
+      patch.label = dto.label;
+    if (dto.areaId !== undefined && dto.areaId !== seat.areaId)
+      patch.areaId = dto.areaId;
+    if (
+      dto.features !== undefined &&
+      !isDeepStrictEqual(dto.features, seat.features)
+    )
+      patch.features = dto.features;
+    const changed = Object.keys(patch);
+    if (changed.length === 0) {
+      this.logger.log(`Seat updated: id=${seatId} fields=none`);
+      return seat;
+    }
+    await this.write(seatId, patch);
+    this.logger.log(`Seat updated: id=${seatId} fields=${changed.join(',')}`);
+    return this.findAdmin(seatId);
   }
 
   async setStatus(seatId: string, status: SeatStatus): Promise<Seat> {
     // shortcut: no seat.status_changed outbox event (api-endpoints.md:162) until messaging lands; add OutboxService.add in the same transaction then.
-    // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
+    // Live bookings stay valid on MAINTENANCE/UNAVAILABLE: findBookable already refuses new ones; the admin resolves existing ones.
     const seat = await this.findAdmin(seatId);
     // Same status: nothing to change, don't bump updated_at.
     if (seat.status === status) return seat;
-    const previous = seat.status;
-    seat.status = status;
-    const saved = await this.save(seat);
+    await this.write(seatId, { status });
     this.logger.log(
-      `Seat status changed: id=${seatId} ${previous} -> ${status}`,
+      `Seat status changed: id=${seatId} ${seat.status} -> ${status}`,
     );
-    return saved;
+    return this.findAdmin(seatId);
   }
 
+  /** Soft delete. 409 while the seat has a PENDING, CHECKED_IN or CHECKOUT_OVERDUE booking. */
   async softDelete(seatId: string): Promise<void> {
-    // shortcut: does not check future bookings (bookings imports seats); bookings dev adds the guard.
     const seat = await this.findAdmin(seatId);
+    // shortcut: reads bookings directly; seats can't import bookings (bookings -> seats). Move behind a bookings port when one exists.
+    // Known gap: a booking created between this check and the delete is not caught; closing it needs the booking transaction to lock the seat row (bookings' code).
+    const [live] = await this.seats.manager.query(
+      "SELECT 1 FROM bookings WHERE seat_id = $1 AND status IN ('PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE') LIMIT 1",
+      [seatId],
+    );
+    if (live) {
+      this.logger.warn(`Seat delete rejected: active bookings (id=${seatId})`);
+      throw new ConflictException(
+        'Seat still has active bookings; cancel or complete them first',
+      );
+    }
     await this.seats.softDelete(seatId);
     this.logger.log(
       `Seat deleted: id=${seatId} place=${seat.placeId} label=${seat.label}`,
@@ -174,16 +185,38 @@ export class SeatsService {
     if (!area) throw new BadRequestException(AREA_MISMATCH);
   }
 
+  // Targeted UPDATE of only the given columns, never save(entity): save re-reads the
+  // row and writes back every column of a stale copy, undoing concurrent changes.
+  // The deleted_at filter keeps a write from touching (or reviving) a deleted seat.
+  private async write(
+    seatId: string,
+    patch: QueryDeepPartialEntity<Seat>,
+  ): Promise<void> {
+    try {
+      const { affected } = await this.seats.update(
+        { id: seatId, deletedAt: IsNull() },
+        patch,
+      );
+      if (!affected) throw new NotFoundException('Seat not found');
+    } catch (err) {
+      this.rethrowMappedDbError(err);
+    }
+  }
+
   private async save(seat: Seat): Promise<Seat> {
     try {
       return await this.seats.save(seat);
     } catch (err) {
-      const mapped = mapDbError(err);
-      // Expected client errors (duplicate label, wrong area): warn, not error.
-      if (mapped !== err && mapped instanceof Error)
-        this.logger.warn(`Seat write rejected: ${mapped.message}`);
-      throw mapped;
+      this.rethrowMappedDbError(err);
     }
+  }
+
+  private rethrowMappedDbError(err: unknown): never {
+    const mapped = mapDbError(err);
+    // Expected client errors (duplicate label, wrong area): warn, not error.
+    if (mapped !== err && mapped instanceof Error)
+      this.logger.warn(`Seat write rejected: ${mapped.message}`);
+    throw mapped;
   }
 
   private visible(): SelectQueryBuilder<Seat> {

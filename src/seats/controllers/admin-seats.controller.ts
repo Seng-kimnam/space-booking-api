@@ -9,8 +9,6 @@ import {
   Post,
   UseGuards,
   UseInterceptors,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -35,7 +33,6 @@ import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { UpdateSeatStatusDto } from '../dto/update-seat-status.dto';
 import { SeatResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 
-// Per-controller pipe because there is no global one yet; drop it when one is added.
 @ApiTags('Seats')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
@@ -43,13 +40,6 @@ import { SeatResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 @UseGuards(AuthGuard)
 @UseInterceptors(RolesInterceptor)
 @Roles(UserRole.ADMIN)
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
 @Controller('admin')
 export class AdminSeatsController {
   constructor(private readonly seats: SeatsService) {}
@@ -98,6 +88,7 @@ export class AdminSeatsController {
   @ApiNoContentResponse()
   @ApiBadRequestResponse()
   @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'Seat still has active bookings' })
   softDelete(@Param('seatId', ParseUUIDPipe) seatId: string) {
     return this.seats.softDelete(seatId);
   }
