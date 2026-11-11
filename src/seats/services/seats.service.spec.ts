@@ -205,7 +205,7 @@ describe('SeatsService', () => {
     });
 
     it('update passes areaId null through and leaves other columns out', async () => {
-      const repo = repoWithSeat(seatRow());
+      const repo = repoWithSeat(seatRow({ areaId: 'area-1' }));
       await new SeatsService(
         repo as unknown as Repository<Seat>,
         places(),
@@ -214,6 +214,34 @@ describe('SeatsService', () => {
         { id: 's1', deletedAt: IsNull() },
         { areaId: null },
       );
+    });
+
+    it('update skips columns whose value is unchanged', async () => {
+      const repo = repoWithSeat(
+        seatRow({ label: 'A1', areaId: null, features: { power: true } }),
+      );
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'A1', areaId: null, features: { power: true } });
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=none');
+    });
+
+    it('update writes only the columns that differ', async () => {
+      const repo = repoWithSeat(
+        seatRow({ label: 'A1', areaId: null, features: { power: true } }),
+      );
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+      ).update('s1', { label: 'A1', features: { power: false } });
+      expect(repo.update).toHaveBeenCalledWith(
+        { id: 's1', deletedAt: IsNull() },
+        { features: { power: false } },
+      );
+      expect(log).toHaveBeenCalledWith('Seat updated: id=s1 fields=features');
     });
 
     it('update with an empty body issues no write', async () => {
@@ -261,10 +289,10 @@ describe('SeatsService', () => {
       const repo = repoWithSeat(seatRow());
       repo.update.mockRejectedValue(dbError('23505', 'seats_place_label_uk'));
       await expect(
-        new SeatsService(
-          repo as unknown as Repository<Seat>,
-          places(),
-        ).update('s1', { label: 'B2' }),
+        new SeatsService(repo as unknown as Repository<Seat>, places()).update(
+          's1',
+          { label: 'B2' },
+        ),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(warn).toHaveBeenCalledTimes(1);
     });

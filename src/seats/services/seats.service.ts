@@ -6,13 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  EntityManager,
-  IsNull,
-  Repository,
-  SelectQueryBuilder,
-} from 'typeorm';
+import { EntityManager, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
+import { isDeepStrictEqual } from 'node:util';
 import { Seat } from '../entities/seat.entity';
 import { PlaceSeatQueryDto, SeatQueryDto } from '../dto/seat-query.dto';
 import { SeatStatus } from '../../common/enums';
@@ -20,10 +16,7 @@ import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
 import { SeatPageResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 import { PlacesService } from '../../places/services/places.service';
-import {
-  PG_UNIQUE_VIOLATION,
-  isPgError,
-} from '../../common/utils/db-errors';
+import { PG_UNIQUE_VIOLATION, isPgError } from '../../common/utils/db-errors';
 
 // Seat queries filter on their place inside the same SQL (one round trip, and
 // the filter composes with pagination), so this stays a subquery rather than a
@@ -116,10 +109,17 @@ export class SeatsService {
   async update(seatId: string, dto: UpdateSeatDto): Promise<Seat> {
     const seat = await this.findAdmin(seatId);
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, seat.placeId);
+    // Only values that differ are written: an unchanged value must not bump updated_at.
     const patch: QueryDeepPartialEntity<Seat> = {};
-    if (dto.label !== undefined) patch.label = dto.label;
-    if (dto.areaId !== undefined) patch.areaId = dto.areaId;
-    if (dto.features !== undefined) patch.features = dto.features;
+    if (dto.label !== undefined && dto.label !== seat.label)
+      patch.label = dto.label;
+    if (dto.areaId !== undefined && dto.areaId !== seat.areaId)
+      patch.areaId = dto.areaId;
+    if (
+      dto.features !== undefined &&
+      !isDeepStrictEqual(dto.features, seat.features)
+    )
+      patch.features = dto.features;
     const changed = Object.keys(patch);
     if (changed.length === 0) {
       this.logger.log(`Seat updated: id=${seatId} fields=none`);
