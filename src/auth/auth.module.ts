@@ -10,6 +10,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserOtp } from '../users/entities/user-otp.entity';
 import { Role } from '../roles/entities/role.entity';
 import * as dotenv from 'dotenv';
+import { GoogleStrategy } from './strategies/google.strategy';
 dotenv.config();
 @Module({
   imports: [
@@ -20,7 +21,7 @@ dotenv.config();
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthGuard, MailService],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy],
   // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
   exports: [AuthService, AuthGuard, JwtModule],
 })

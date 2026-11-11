@@ -72,4 +72,14 @@ export class User {
 
   @Column({ name: 'admin_approved_by', type: 'uuid', nullable: true })
   adminApprovedById: string | null;
+
+
+  @Column({
+    name: 'google_id',
+    type: 'varchar',
+    length: 255,
+    unique: true,
+    nullable: true,
+  })
+  googleId: string | null;
 }
