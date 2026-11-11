@@ -8,10 +8,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   EntityManager,
+  IsNull,
   QueryFailedError,
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { Seat } from '../entities/seat.entity';
 import { PlaceSeatQueryDto, SeatQueryDto } from '../dto/seat-query.dto';
 import { SeatStatus } from '../../common/enums';
@@ -114,19 +116,18 @@ export class SeatsService {
   async update(seatId: string, dto: UpdateSeatDto): Promise<Seat> {
     const seat = await this.findAdmin(seatId);
     if (dto.areaId) await this.assertAreaInPlace(dto.areaId, seat.placeId);
-    if (dto.label !== undefined) seat.label = dto.label;
-    if (dto.areaId !== undefined) seat.areaId = dto.areaId;
-    if (dto.features !== undefined) seat.features = dto.features;
-    // The loaded relation would override areaId on save.
-    delete (seat as Partial<Seat>).area;
-    const saved = await this.save(seat);
-    const changed = Object.keys(dto).filter(
-      (k) => dto[k as keyof UpdateSeatDto] !== undefined,
-    );
-    this.logger.log(
-      `Seat updated: id=${seatId} fields=${changed.join(',') || 'none'}`,
-    );
-    return saved;
+    const patch: QueryDeepPartialEntity<Seat> = {};
+    if (dto.label !== undefined) patch.label = dto.label;
+    if (dto.areaId !== undefined) patch.areaId = dto.areaId;
+    if (dto.features !== undefined) patch.features = dto.features;
+    const changed = Object.keys(patch);
+    if (changed.length === 0) {
+      this.logger.log(`Seat updated: id=${seatId} fields=none`);
+      return seat;
+    }
+    await this.write(seatId, patch);
+    this.logger.log(`Seat updated: id=${seatId} fields=${changed.join(',')}`);
+    return this.findAdmin(seatId);
   }
 
   async setStatus(seatId: string, status: SeatStatus): Promise<Seat> {
@@ -135,13 +136,11 @@ export class SeatsService {
     const seat = await this.findAdmin(seatId);
     // Same status: nothing to change, don't bump updated_at.
     if (seat.status === status) return seat;
-    const previous = seat.status;
-    seat.status = status;
-    const saved = await this.save(seat);
+    await this.write(seatId, { status });
     this.logger.log(
-      `Seat status changed: id=${seatId} ${previous} -> ${status}`,
+      `Seat status changed: id=${seatId} ${seat.status} -> ${status}`,
     );
-    return saved;
+    return this.findAdmin(seatId);
   }
 
   async softDelete(seatId: string): Promise<void> {
@@ -174,16 +173,38 @@ export class SeatsService {
     if (!area) throw new BadRequestException(AREA_MISMATCH);
   }
 
+  // Targeted UPDATE of only the given columns, never save(entity): save re-reads the
+  // row and writes back every column of a stale copy, undoing concurrent changes.
+  // The deleted_at filter keeps a write from touching (or reviving) a deleted seat.
+  private async write(
+    seatId: string,
+    patch: QueryDeepPartialEntity<Seat>,
+  ): Promise<void> {
+    try {
+      const { affected } = await this.seats.update(
+        { id: seatId, deletedAt: IsNull() },
+        patch,
+      );
+      if (!affected) throw new NotFoundException('Seat not found');
+    } catch (err) {
+      this.rethrowMappedDbError(err);
+    }
+  }
+
   private async save(seat: Seat): Promise<Seat> {
     try {
       return await this.seats.save(seat);
     } catch (err) {
-      const mapped = mapDbError(err);
-      // Expected client errors (duplicate label, wrong area): warn, not error.
-      if (mapped !== err && mapped instanceof Error)
-        this.logger.warn(`Seat write rejected: ${mapped.message}`);
-      throw mapped;
+      this.rethrowMappedDbError(err);
     }
+  }
+
+  private rethrowMappedDbError(err: unknown): never {
+    const mapped = mapDbError(err);
+    // Expected client errors (duplicate label, wrong area): warn, not error.
+    if (mapped !== err && mapped instanceof Error)
+      this.logger.warn(`Seat write rejected: ${mapped.message}`);
+    throw mapped;
   }
 
   private visible(): SelectQueryBuilder<Seat> {
