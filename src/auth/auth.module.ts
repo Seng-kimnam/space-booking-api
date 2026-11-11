@@ -18,7 +18,9 @@ import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserOtp } from '../users/entities/user-otp.entity';
 import { Role } from '../roles/entities/role.entity';
-
+import * as dotenv from 'dotenv';
+import { GoogleStrategy } from './strategies/google.strategy';
+dotenv.config();
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, RefreshToken, UserOtp, Role]),
@@ -40,13 +42,7 @@ import { Role } from '../roles/entities/role.entity';
     ThrottlerModule.forRoot({ throttlers: AUTH_THROTTLERS }),
   ],
   controllers: [AuthController, AdminUsersController],
-  providers: [
-    AuthService,
-    AccountStatusService,
-    AuthCleanupService,
-    AuthGuard,
-    MailService,
-  ],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AccountStatusService, AuthCleanupService],
   // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
   exports: [AuthService, AuthCleanupService, AuthGuard, JwtModule],
 })

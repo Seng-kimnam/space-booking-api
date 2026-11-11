@@ -10,8 +10,9 @@ import {
   Post,
   UseGuards,
   UseInterceptors,
+  Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
   ChangePasswordDto,
@@ -35,6 +36,8 @@ import { CurrentUser } from './current-user.decorator';
 import { Roles } from './role.decorator';
 import { RolesInterceptor } from './roles.interceptor';
 import { UserRole } from '../users/entities/user.entity';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
+import { GoogleProfile } from './strategies/google.strategy';
 
 type JwtUser = {
   sub: string;
@@ -119,11 +122,7 @@ export class AuthController {
   @AuthThrottle(OTP_CHECK_LIMITS)
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(
-      dto.email,
-      dto.otp,
-      dto.newPassword,
-    );
+    return this.authService.resetPassword(dto.email, dto.otp, dto.newPassword);
   }
 
   @ApiBearerAuth()
@@ -180,5 +179,21 @@ export class AuthController {
   @Get('admin-only')
   adminOnly() {
     return { message: 'Admin access granted' };
+  }
+
+  // Step 1: redirects the browser to Google's consent screen
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  @ApiExcludeEndpoint()
+  googleLogin() {
+    return { message: 'Redirecting to Google for authentication...' };
+  }
+
+  // Step 2: Google redirects back here with a code
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiExcludeEndpoint()
+  googleCallback(@Req() req: { user: GoogleProfile }) {
+    return this.authService.loginWithGoogle(req.user);
   }
 }

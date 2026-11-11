@@ -29,6 +29,7 @@ import { UserOtp } from '../users/entities/user-otp.entity';
 import { OtpPurpose } from '../common/enums';
 import { MailService } from './mail.service';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
+import { GoogleProfile } from './strategies/google.strategy';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -661,5 +662,55 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+  // login with google oauth2
+  async loginWithGoogle(profile: GoogleProfile) {
+    // 1. Returning Google user
+    let user = await this.usersRepository.findOne({
+      where: { googleId: profile.googleId },
+    });
+
+    if (!user) {
+      // 2. Existing email/password account -> link, but only if Google verified the email
+      const existing = await this.usersRepository.findOne({
+        where: { email: profile.email },
+      });
+
+      if (existing) {
+        if (!profile.emailVerified) {
+          throw new ForbiddenException('Google email is not verified');
+        }
+        existing.googleId = profile.googleId;
+        user = await this.usersRepository.save(existing);
+      } else {
+        // 3. Brand-new user with the default USER role
+        const roleUser = await this.rolesRepository.find({
+          where: { name: UserRole.USER },
+        });
+        if (!roleUser || roleUser.length === 0) {
+          throw new Error('Default user role not found');
+        }
+
+        user = await this.usersRepository.save(
+          this.usersRepository.create({
+            name: profile.name,
+            email: profile.email,
+            googleId: profile.googleId,
+            passwordHash: null,
+            role: roleUser[0],
+          }),
+        );
+      }
+    }
+    if (!user) {
+      throw new Error('Google user could not be resolved');
+    }
+    return this.issueToken(user);
+  }
+
+  private issueToken(user: User) {
+    // Reuse your existing login token logic here so both flows match
+    const payload = { sub: user.id, roleId: user.role.id };
+    return { accessToken: this.jwtService.sign(payload) };
   }
 }
