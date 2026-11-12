@@ -2,12 +2,7 @@ import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique }
 import { ApiClient } from '../../api-clients/entities/api-client.entity';
 import { User } from '../../users/entities/user.entity';
 
-/**
- * One of our users linked to their account in a partner system (LMS member).
- * Created only by the explicit link flow, never by matching emails
- * (docs/integration/service-authentication.md section 4, decision D11).
- * One member <-> one user per partner system.
- */
+/** A user linked to their partner account (e.g. LMS member), one-to-one per system. Link flow only (D11). */
 @Entity({ name: 'external_identities' })
 @Unique('external_identities_member_uk', ['externalSystem', 'externalUserId'])
 @Unique('external_identities_user_uk', ['externalSystem', 'userId'])

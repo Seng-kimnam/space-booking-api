@@ -1,11 +1,7 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique } from 'typeorm';
 import { ApiClient } from '../../api-clients/entities/api-client.entity';
 
-/**
- * One-time code a partner requested to link one of its members (proposal
- * section 6.4). Hash only, single use, short-lived, like user_otps
- * (AGENTS.md section 6.8).
- */
+/** One-time link code for a partner member: hash only, single use, short-lived (AGENTS.md section 6.8). */
 @Entity({ name: 'external_link_requests' })
 @Unique('external_link_requests_code_hash_uk', ['codeHash'])
 @Index('external_link_requests_member_idx', ['externalSystem', 'externalUserId'])

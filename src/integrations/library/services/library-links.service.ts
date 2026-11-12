@@ -1,13 +1,14 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { DataSource, EntityManager } from 'typeorm';
-import { integrationsConfig } from '../../configuration/integrations.config';
-import type { ExternalIdentity } from '../../external-identities/entities/external-identity.entity';
-import { ExternalIdentitiesService } from '../../external-identities/external-identities.service';
-import type { IncomingEnvelope } from '../../messaging/consumers/consumer-route';
-import type { IdentityV1, MemberStandingChangedV1 } from '../../messaging/contract/types';
-import { OutboxService } from '../../messaging/outbox/outbox.service';
-import { LIBRARY_SYSTEM, LibraryRoutingKey } from './library.constants';
+import { integrationsConfig } from '../../../configuration/integrations.config';
+import type { ExternalIdentity } from '../../../external-identities/entities/external-identity.entity';
+import { ExternalIdentitiesService } from '../../../external-identities/external-identities.service';
+import type { IncomingEnvelope } from '../../../messaging/consumers/consumer-route';
+import type { IdentityV1, MemberStandingChangedV1 } from '../../../messaging/contract/types';
+import { MessageType } from '../../../messaging/contract/schemas';
+import { OutboxService } from '../../../messaging/outbox/outbox.service';
+import { LIBRARY_SYSTEM } from '../library.constants';
 
 export interface LinkRequestResult {
   code: string;
@@ -17,11 +18,8 @@ export interface LinkRequestResult {
 }
 
 /**
- * Linking an LMS member to one of our users (docs/lms-integration-proposal.md
- * section 6.4): LMS asks for a one-time code (API key, identities:link), the
- * member opens it while logged in to Space Booking and confirms. Either side
- * can unlink. Every change publishes identity.linked / identity.unlinked in
- * the same transaction. Also stores member.standing_changed (phase 3).
+ * Links an LMS member to one of our users with a one-time code, and stores
+ * member standing. Every link change publishes identity.* in the same transaction.
  */
 @Injectable()
 export class LibraryLinksService {
@@ -49,7 +47,7 @@ export class LibraryLinksService {
     };
   }
 
-  /** The logged-in user confirms a code from LMS. 400 for unknown/used/expired, 409 if already linked. */
+  /** 400 for an unknown, used or expired code; 409 if already linked. */
   async confirm(userId: string, code: string): Promise<ExternalIdentity> {
     const link = await this.dataSource.transaction(async (m) => {
       const request = await this.identities.consumeLinkCode(m, LIBRARY_SYSTEM, code);
@@ -74,21 +72,13 @@ export class LibraryLinksService {
   }
 
   async unlinkByUser(userId: string): Promise<void> {
-    const removed = await this.dataSource.transaction(async (m) => {
-      const row = await this.identities.unlinkByUser(m, LIBRARY_SYSTEM, userId);
-      if (row) await this.publish(m, row, false);
-      return row;
-    });
+    const removed = await this.unlinkAndPublish((m) => this.identities.unlinkByUser(m, LIBRARY_SYSTEM, userId));
     if (!removed) throw new NotFoundException('No library account linked');
     this.logger.log(`LMS account unlinked by user: user=${userId} member=${removed.externalUserId}`);
   }
 
   async unlinkByMember(memberId: string, clientId: string): Promise<void> {
-    const removed = await this.dataSource.transaction(async (m) => {
-      const row = await this.identities.unlinkByMember(m, LIBRARY_SYSTEM, memberId);
-      if (row) await this.publish(m, row, false);
-      return row;
-    });
+    const removed = await this.unlinkAndPublish((m) => this.identities.unlinkByMember(m, LIBRARY_SYSTEM, memberId));
     if (!removed) throw new NotFoundException('Member is not linked');
     this.logger.log(`LMS account unlinked by client=${clientId}: member=${memberId}`);
   }
@@ -102,9 +92,19 @@ export class LibraryLinksService {
       expiryDate: s.expiryDate,
       evaluatedAt: s.evaluatedAt,
     });
-    // Unlinked members are expected (LMS sends for everyone): debug, not a problem.
+    // LMS sends standing for every member, so unlinked ones are normal.
     if (outcome === 'unlinked') this.logger.debug(`Standing for unlinked member ${s.memberId} ignored`);
     else this.logger.log(`Member standing ${outcome}: member=${s.memberId} eligible=${s.eligible}`);
+  }
+
+  private unlinkAndPublish(
+    unlink: (m: EntityManager) => Promise<ExternalIdentity | null>,
+  ): Promise<ExternalIdentity | null> {
+    return this.dataSource.transaction(async (m) => {
+      const row = await unlink(m);
+      if (row) await this.publish(m, row, false);
+      return row;
+    });
   }
 
   private publish(m: EntityManager, row: ExternalIdentity, linked: boolean): Promise<void> {
@@ -117,7 +117,7 @@ export class LibraryLinksService {
     return this.outbox.add(m, {
       aggregateType: 'identity',
       aggregateId: row.id,
-      eventType: linked ? LibraryRoutingKey.IDENTITY_LINKED : LibraryRoutingKey.IDENTITY_UNLINKED,
+      eventType: linked ? MessageType.IDENTITY_LINKED : MessageType.IDENTITY_UNLINKED,
       payload: { schemaVersion: 1, ...data },
     });
   }

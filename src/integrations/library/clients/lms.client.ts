@@ -1,15 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
-import { integrationsConfig } from '../../configuration/integrations.config';
-import { SchemaValidator } from '../../messaging/contract/schema-validator';
-import type { PlaceSnapshotV1 } from '../../messaging/contract/types';
-import { ServiceHttpClient, ServiceHttpError } from '../http/service-http.client';
+import { integrationsConfig } from '../../../configuration/integrations.config';
+import { SchemaValidator } from '../../../messaging/contract/schema-validator';
+import type { PlaceSnapshotV1 } from '../../../messaging/contract/types';
+import { ServiceHttpClient, ServiceHttpError } from '../../http/service-http.client';
 
-/**
- * Space Booking -> LMS over HTTP (docs/integration/service-authentication.md
- * section 2.2). Authenticates with the key LMS issued us (LMS_API_KEY, header
- * x-api-key). Background jobs only.
- */
+/** Calls the LMS REST API with the key LMS issued us (LMS_API_KEY). Background jobs only. */
 @Injectable()
 export class LmsClient {
   private readonly http: ServiceHttpClient | null;
@@ -38,9 +34,8 @@ export class LmsClient {
   }
 
   /**
-   * GET /external/places/:placeId/snapshot -> { revision, data }. The snapshot
-   * is validated with the same schema as place.updated messages. Null when LMS
-   * says the place doesn't exist (404). Throws ServiceHttpError otherwise.
+   * Fetches a place snapshot, checked against the same schema as place.updated.
+   * Null when LMS answers 404; throws ServiceHttpError otherwise.
    */
   async getPlaceSnapshot(lmsPlaceId: string): Promise<PlaceSnapshotV1 | null> {
     if (!this.http) throw new Error('LMS_BASE_URL is not configured');

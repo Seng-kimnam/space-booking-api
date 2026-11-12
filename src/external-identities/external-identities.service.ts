@@ -23,10 +23,8 @@ export interface Eligibility {
 }
 
 /**
- * Links between our users and partner accounts (external_identities) and the
- * one-time link codes (external_link_requests). Writes take the caller's
- * `manager`, so callers can add outbox rows (identity.linked / unlinked) in
- * the same transaction. Never matches by email (decision D11).
+ * Links our users to partner accounts via one-time codes, never by email (D11).
+ * Writes take the caller's `manager` so outbox rows join the same transaction.
  */
 @Injectable()
 export class ExternalIdentitiesService {
@@ -122,11 +120,11 @@ export class ExternalIdentitiesService {
   }
 
   /** Deletes the link and returns it, or null if there was none. */
-  async unlinkByUser(manager: EntityManager, system: string, userId: string): Promise<ExternalIdentity | null> {
+  unlinkByUser(manager: EntityManager, system: string, userId: string): Promise<ExternalIdentity | null> {
     return this.unlink(manager, { externalSystem: system, userId });
   }
 
-  async unlinkByMember(manager: EntityManager, system: string, externalUserId: string): Promise<ExternalIdentity | null> {
+  unlinkByMember(manager: EntityManager, system: string, externalUserId: string): Promise<ExternalIdentity | null> {
     return this.unlink(manager, { externalSystem: system, externalUserId });
   }
 
@@ -169,9 +167,8 @@ export class ExternalIdentitiesService {
   }
 
   /**
-   * Whether a user may make NEW bookings at a place this partner manages
-   * (decision D10). Not linked, or no standing received yet: allowed (null).
-   * `today` is the place-local date, YYYY-MM-DD.
+   * Whether a user may make new bookings at a partner place (D10). Null (allowed)
+   * when not linked or no standing yet. `today` is the place-local YYYY-MM-DD.
    */
   async eligibility(
     manager: EntityManager,

@@ -4,11 +4,7 @@ import { ExternalIdentity } from './entities/external-identity.entity';
 import { ExternalLinkRequest } from './entities/external-link-request.entity';
 import { ExternalIdentitiesService } from './external-identities.service';
 
-/**
- * external_identities + external_link_requests. A low layer (only entities of
- * users and api_clients), so bookings (eligibility, member ids in events) and
- * integrations (link flow, standing) can both use it.
- */
+/** Partner account links. Kept low-level so both bookings and integrations can use it. */
 @Module({
   imports: [TypeOrmModule.forFeature([ExternalIdentity, ExternalLinkRequest])],
   providers: [ExternalIdentitiesService],

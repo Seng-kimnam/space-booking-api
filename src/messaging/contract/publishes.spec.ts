@@ -3,11 +3,9 @@ import { METHOD_METADATA } from '@nestjs/common/constants';
 import { AdminBookingsController } from '../../bookings/controllers/admin-bookings.controller';
 import { AttendanceController } from '../../bookings/controllers/attendance.controller';
 import { BookingsController } from '../../bookings/controllers/bookings.controller';
-import {
-  LibraryLinksClientController,
-  LibraryMyLinkController,
-} from '../../integrations/library/library-links.controller';
-import { AdminLibraryPlacesController } from '../../integrations/library/library-places.controller';
+import { AdminLibraryPlacesController } from '../../integrations/library/controllers/admin-library-places.controller';
+import { LibraryLinksClientController } from '../../integrations/library/controllers/library-links.controller';
+import { LibraryMyLinkController } from '../../integrations/library/controllers/library-my-link.controller';
 import { PUBLISHES_KEY } from './publishes.decorator';
 import { isPublishedType } from './schemas';
 

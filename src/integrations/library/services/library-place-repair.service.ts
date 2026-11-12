@@ -1,18 +1,17 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import type { IncomingEnvelope } from '../../messaging/consumers/consumer-route';
-import { Place } from '../../places/entities/place.entity';
-import { ServiceHttpError } from '../http/service-http.client';
-import { LIBRARY_SYSTEM, LibraryRoutingKey } from './library.constants';
+import type { IncomingEnvelope } from '../../../messaging/consumers/consumer-route';
+import { MessageType } from '../../../messaging/contract/schemas';
+import { Place } from '../../../places/entities/place.entity';
+import { ServiceHttpError } from '../../http/service-http.client';
+import { LmsClient } from '../clients/lms.client';
+import { LIBRARY_SYSTEM } from '../library.constants';
 import { LibraryPlaceSyncService, SyncOutcome } from './library-place-sync.service';
-import { LmsClient } from './lms.client';
 
 /**
- * Pulls the current snapshot of LMS places over HTTP and applies it exactly
- * like a place.updated message (docs/lms-integration-proposal.md S11). Heals a
- * place after a lost or dead-lettered message. The revision check makes it a
- * no-op when we are already up to date.
+ * Heals places after a lost or dead-lettered message: pulls the snapshot over
+ * HTTP and applies it like a place.updated. Already up to date = no-op.
  */
 @Injectable()
 export class LibraryPlaceRepairService {
@@ -40,7 +39,7 @@ export class LibraryPlaceRepairService {
       try {
         await this.resyncLmsPlace(place.externalId!);
       } catch (err) {
-        // One bad place must not stop the others; LMS down -> stop this run.
+        // One bad place must not stop the others, but if LMS is down, stop this run.
         if (err instanceof ServiceHttpError && err.status === null) {
           this.logger.warn(`LMS unreachable, place repair stopped: ${err.message}`);
           break;
@@ -57,9 +56,9 @@ export class LibraryPlaceRepairService {
     const snapshot = await this.lms.getPlaceSnapshot(lmsPlaceId);
     if (!snapshot) throw new NotFoundException(`LMS has no place ${lmsPlaceId}`);
     const envelope: IncomingEnvelope = {
-      // Not a broker message: no inbox row. The id only names a possible sync_rejected row.
+      // Not a broker message, so no inbox row. The id only names a possible sync_rejected row.
       id: randomUUID(),
-      type: LibraryRoutingKey.PLACE_UPDATED,
+      type: MessageType.PLACE_UPDATED,
       version: 1,
       source: LIBRARY_SYSTEM,
       occurredAt: new Date().toISOString(),

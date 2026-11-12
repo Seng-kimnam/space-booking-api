@@ -1,12 +1,7 @@
 /**
- * Minimal JSON client for calling a partner's REST API as a system
- * (docs/integration/service-authentication.md section 2.2): an API key header,
- * a timeout per attempt, and retries with exponential backoff for failures
- * that may pass (network errors, timeouts, 429, 5xx). Other 4xx are final.
- *
- * Only background jobs use it: never call a partner inside a user request
- * (docs/integration/messaging-contract.md principle 1). The API key and full
- * URLs are never put in errors or logs; errors carry the method, path and status.
+ * Small JSON client for a partner's REST API: API key header, per-attempt
+ * timeout, and backoff retries for transient failures (network, 429, 5xx).
+ * For background jobs only. Errors never include the key or the full URL.
  */
 
 export interface ServiceHttpOptions {
