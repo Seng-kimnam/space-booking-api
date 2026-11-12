@@ -9,6 +9,7 @@ import { PlaceClosure } from '../entities/place-closure.entity';
 import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 import { Place } from '../entities/place.entity';
 import type { OutboxService } from '../../messaging/outbox/outbox.service';
+import type { PlaceChangeBookingsPort } from '../places.ports';
 import {
   PlacesService,
   definedOnly,
@@ -27,6 +28,7 @@ function service(opts: {
   policy?: Partial<BookingPolicy> | null;
   saved?: object[];
   failWith?: unknown;
+  bookingChanges?: PlaceChangeBookingsPort;
 }) {
   const saved = opts.saved ?? [];
   const manager = {
@@ -48,6 +50,7 @@ function service(opts: {
     create: (_: unknown, v: object) => ({ ...v }),
     delete: async () => undefined,
     insert: async () => undefined,
+    softDelete: jest.fn(async () => undefined),
   } as unknown as EntityManager;
   const places = {
     manager: {
@@ -63,8 +66,9 @@ function service(opts: {
     {} as Repository<PlaceClosure>,
     {} as Repository<BookingPolicy>,
     { add: jest.fn(async () => undefined) } as unknown as OutboxService,
+    opts.bookingChanges,
   );
-  return { svc, places, saved };
+  return { svc, places, saved, manager };
 }
 
 describe('mapDbError', () => {
@@ -156,5 +160,52 @@ describe('PlacesService', () => {
     await expect(
       service({ place: null }).svc.getActivePlace('p'),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('PlacesService: bookings an admin change makes impossible', () => {
+  const port = () => ({ cancelAffected: jest.fn(async () => 3) });
+  const active = { id: 'p', isActive: true, externalSystem: null } as Partial<Place>;
+
+  it('deactivating cancels every PENDING booking of the place', async () => {
+    const bookingChanges = port();
+    const { svc } = service({ place: { ...active }, bookingChanges });
+    jest.spyOn(svc as never, 'detail' as never).mockResolvedValue({} as never);
+    await svc.update('p', { isActive: false });
+    expect(bookingChanges.cancelAffected).toHaveBeenCalledWith(
+      expect.anything(),
+      'p',
+      'all',
+      'PLACE_DEACTIVATED',
+    );
+  });
+
+  it('new opening hours or closures cancel the bookings they no longer allow', async () => {
+    const bookingChanges = port();
+    const { svc } = service({ place: { ...active }, bookingChanges });
+    jest.spyOn(svc as never, 'detail' as never).mockResolvedValue({} as never);
+    await svc.update('p', { closures: [{ date: '2026-12-25' }] });
+    expect(bookingChanges.cancelAffected).toHaveBeenCalledWith(
+      expect.anything(),
+      'p',
+      'outside-hours',
+      'HOURS_CHANGED',
+    );
+  });
+
+  it('other edits cancel nothing', async () => {
+    const bookingChanges = port();
+    const { svc } = service({ place: { ...active }, bookingChanges });
+    jest.spyOn(svc as never, 'detail' as never).mockResolvedValue({} as never);
+    await svc.update('p', { name: 'Renamed' });
+    expect(bookingChanges.cancelAffected).not.toHaveBeenCalled();
+  });
+
+  it('delete cancels every PENDING booking in the same transaction', async () => {
+    const bookingChanges = port();
+    const { svc, manager } = service({ place: { ...active, name: 'Lib' }, bookingChanges });
+    await svc.softDelete('p');
+    expect(manager.softDelete).toHaveBeenCalledWith(Place, { id: 'p' });
+    expect(bookingChanges.cancelAffected).toHaveBeenCalledWith(manager, 'p', 'all', 'PLACE_DELETED');
   });
 });

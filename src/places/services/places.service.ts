@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -14,6 +15,8 @@ import { PlaceOpeningHour } from '../entities/place-opening-hour.entity';
 import { Place } from '../entities/place.entity';
 import { MessageType } from '../../messaging/contract/schemas';
 import { OutboxService } from '../../messaging/outbox/outbox.service';
+import { PLACE_CHANGE_BOOKINGS } from '../places.ports';
+import type { PlaceChangeBookingsPort } from '../places.ports';
 import { BookingPolicyDto } from '../dto/booking-policy.dto';
 import { ClosureDto } from '../dto/closure.dto';
 import { CreatePlaceDto } from '../dto/create-place.dto';
@@ -106,6 +109,10 @@ export class PlacesService {
     // From the global MessagingModule. Optional so module-level tests that
     // don't load messaging still compile the places module.
     @Optional() private readonly outbox?: OutboxService,
+    // Bound by bookings (BookingsBindingsModule). Optional for the same reason.
+    @Optional()
+    @Inject(PLACE_CHANGE_BOOKINGS)
+    private readonly bookingChanges?: PlaceChangeBookingsPort,
   ) {}
 
   /** Public list: active, not deleted. */
@@ -183,7 +190,7 @@ export class PlacesService {
     placeId: string,
     dto: UpdatePlaceDto,
   ): Promise<PlaceDetailResponseDto> {
-    await this.transaction(async (m) => {
+    const cancelled = await this.transaction(async (m) => {
       // Row lock: concurrent PATCHes of one place run one after another, so
       // replacing hours/closures never interleaves.
       const place = await m
@@ -208,24 +215,48 @@ export class PlacesService {
       if (openingHours) await this.replaceHours(m, placeId, openingHours);
       if (closures) await this.replaceClosures(m, placeId, closures);
       if (bookingPolicy) await this.mergePolicy(m, placeId, bookingPolicy);
+
+      // Bookings the change makes impossible are cancelled now, in this
+      // transaction, instead of expiring later as no-shows the user didn't cause.
+      if (!this.bookingChanges) return 0;
+      if (wasActive && !place.isActive)
+        return this.bookingChanges.cancelAffected(m, placeId, 'all', 'PLACE_DEACTIVATED');
+      if (place.isActive && (openingHours || closures))
+        return this.bookingChanges.cancelAffected(m, placeId, 'outside-hours', 'HOURS_CHANGED');
+      return 0;
     });
     const changed = Object.keys(dto).filter(
       (k) => dto[k as keyof UpdatePlaceDto] !== undefined,
     );
     this.logger.log(
-      `Place updated: id=${placeId} fields=${changed.join(',') || 'none'}`,
+      `Place updated: id=${placeId} fields=${changed.join(',') || 'none'} cancelledBookings=${cancelled}`,
     );
     return this.detail(placeId, true);
   }
 
+  /**
+   * Soft delete. PENDING bookings at the place are cancelled in the same
+   * transaction; CHECKED_IN ones are left for staff to check out.
+   * Seats of a deleted place already disappear from reads (seats checks places.deleted_at).
+   */
   async softDelete(placeId: string): Promise<void> {
-    // shortcut: does not check future bookings (bookings imports places); bookings dev adds the guard.
-    // Seats of a deleted place already disappear from reads (seats checks places.deleted_at).
-    const place = await this.places.findOneBy({ id: placeId });
-    if (!place) throw new NotFoundException('Place not found');
-    assertNotPartnerManaged(place);
-    await this.places.softDelete({ id: placeId });
-    this.logger.log(`Place deleted: id=${placeId} name=${place.name}`);
+    const { place, cancelled } = await this.transaction(async (m) => {
+      const place = await m
+        .createQueryBuilder(Place, 'place')
+        .setLock('pessimistic_write')
+        .where('place.id = :placeId', { placeId })
+        .getOne();
+      if (!place) throw new NotFoundException('Place not found');
+      assertNotPartnerManaged(place);
+      await m.softDelete(Place, { id: placeId });
+      const cancelled = this.bookingChanges
+        ? await this.bookingChanges.cancelAffected(m, placeId, 'all', 'PLACE_DELETED')
+        : 0;
+      return { place, cancelled };
+    });
+    this.logger.log(
+      `Place deleted: id=${placeId} name=${place.name} cancelledBookings=${cancelled}`,
+    );
   }
 
   // includeInactive: admins still see (and edit) inactive places.

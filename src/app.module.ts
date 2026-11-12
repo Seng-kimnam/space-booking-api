@@ -16,6 +16,7 @@ import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 import { BookingsModule } from './bookings/bookings.module';
 import { InterimPortsModule } from './bookings/interim-ports.module';
+import { BookingsBindingsModule } from './bookings/bookings-bindings.module';
 import { JobsModule } from './jobs/jobs.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { LibraryIntegrationModule } from './integrations/library/library-integration.module';
@@ -50,6 +51,8 @@ import { TelegramModule } from './telegram/telegram.module';
     TelegramModule,
     NotificationsModule,
     BookingsModule,
+    // Ports places/seats declare and bookings implements (global).
+    BookingsBindingsModule,
     JobsModule,
     // Integrating systems calling us with an API key (/admin/api-clients, ApiKeyGuard).
     ApiClientsModule,

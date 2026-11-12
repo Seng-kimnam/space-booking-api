@@ -24,3 +24,26 @@ export function formatInZone(date: Date, timezone: string): string {
     hour12: false,
   }).format(date);
 }
+
+/**
+ * UTC offset of an IANA zone at an instant, in minutes (Asia/Kolkata -> 330,
+ * America/St_Johns in winter -> -210). Unknown or empty zone -> 0 (UTC).
+ */
+export function zoneOffsetMinutes(date: Date, timezone: string): number {
+  let name: string | undefined;
+  try {
+    name = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      timeZoneName: 'longOffset',
+    })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')?.value;
+  } catch {
+    return 0;
+  }
+  // "GMT+05:30", "GMT-03:30", or plain "GMT" for UTC.
+  const m = /GMT([+-])(\d{2}):(\d{2})/.exec(name ?? '');
+  if (!m) return 0;
+  const minutes = Number(m[2]) * 60 + Number(m[3]);
+  return m[1] === '-' ? -minutes : minutes;
+}

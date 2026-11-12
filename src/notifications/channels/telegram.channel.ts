@@ -7,6 +7,7 @@ import {
 } from '../../telegram/telegram-bot.client';
 import {
   NotificationChannelStrategy,
+  RateLimitedError,
   RecipientUnreachableError,
   RenderedNotification,
 } from './notification-channel.strategy';
@@ -31,10 +32,6 @@ export class TelegramChannel implements NotificationChannelStrategy {
     private readonly bot: TelegramBotClient,
   ) {}
 
-  async isAvailableFor(userId: string): Promise<boolean> {
-    return (await this.accounts.findLiveChatId(userId)) !== null;
-  }
-
   async send(userId: string, message: RenderedNotification): Promise<void> {
     const chatId = await this.accounts.findLiveChatId(userId);
     if (!chatId) {
@@ -47,6 +44,13 @@ export class TelegramChannel implements NotificationChannelStrategy {
         // Blocked the bot without us seeing the my_chat_member update: unlink now.
         await this.accounts.unlinkChat(chatId);
         throw new RecipientUnreachableError('User blocked the Telegram bot');
+      }
+      if (err instanceof TelegramApiError && err.isRateLimited) {
+        // No retry_after given: wait a minute (Telegram's usual flood window).
+        throw new RateLimitedError(
+          err.message,
+          (err.retryAfterSeconds ?? 60) * 1000,
+        );
       }
       throw err;
     }

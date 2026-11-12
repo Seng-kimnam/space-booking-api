@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
@@ -20,6 +22,8 @@ import {
   PlacesService,
 } from '../../places/services/places.service';
 import { PG_UNIQUE_VIOLATION, isPgError } from '../../common/utils/db-errors';
+import { PLACE_CHANGE_BOOKINGS } from '../../places/places.ports';
+import type { PlaceChangeBookingsPort } from '../../places/places.ports';
 
 // Seat queries filter on their place inside the same SQL (one round trip, and
 // the filter composes with pagination), so this stays a subquery rather than a
@@ -51,6 +55,10 @@ export class SeatsService {
   constructor(
     @InjectRepository(Seat) private readonly seats: Repository<Seat>,
     private readonly places: PlacesService,
+    // Bound by bookings (BookingsBindingsModule); optional so seats-only tests compile.
+    @Optional()
+    @Inject(PLACE_CHANGE_BOOKINGS)
+    private readonly bookingChanges?: PlaceChangeBookingsPort,
   ) {}
 
   list(query: SeatQueryDto): Promise<SeatPageResponseDto> {
@@ -77,20 +85,25 @@ export class SeatsService {
    * Bookable seats among `seatIds`: ACTIVE, not deleted, in an active place.
    * Unknown or unbookable ids are left out. Used by bookings (SEAT_LOOKUP port);
    * pass the caller's `manager` so the read joins its transaction.
+   * With a manager the seat rows are locked FOR SHARE: an admin putting the
+   * seat in maintenance or deleting it waits for the booking to commit, and
+   * then cancels it (otherwise a booking racing the admin write would survive).
    */
   async findBookable(
     seatIds: string[],
     manager?: EntityManager,
   ): Promise<{ id: string; placeId: string; label: string }[]> {
     if (seatIds.length === 0) return [];
-    const rows = await (manager ?? this.seats.manager)
+    const qb = (manager ?? this.seats.manager)
       .getRepository(Seat)
       .createQueryBuilder('seat')
       .select(['seat.id', 'seat.placeId', 'seat.label'])
       .where(PLACE_BOOKABLE)
       .andWhere('seat.id IN (:...seatIds)', { seatIds })
-      .andWhere('seat.status = :status', { status: SeatStatus.ACTIVE })
-      .getMany();
+      .andWhere('seat.status = :status', { status: SeatStatus.ACTIVE });
+    // Locks need a transaction; without a manager this is a plain read.
+    if (manager) qb.setLock('pessimistic_read', undefined, ['seat']);
+    const rows = await qb.getMany();
     return rows.map((s) => ({ id: s.id, placeId: s.placeId, label: s.label }));
   }
 
@@ -139,37 +152,63 @@ export class SeatsService {
 
   async setStatus(seatId: string, status: SeatStatus): Promise<Seat> {
     // shortcut: no seat.status_changed outbox event (api-endpoints.md:162) until messaging lands; add OutboxService.add in the same transaction then.
-    // Live bookings stay valid on MAINTENANCE/UNAVAILABLE: findBookable already refuses new ones; the admin resolves existing ones.
     const seat = await this.findAdmin(seatId);
     assertNotPartnerManaged(await this.places.getPlace(seat.placeId));
     // Same status: nothing to change, don't bump updated_at.
     if (seat.status === status) return seat;
-    await this.write(seatId, { status });
+    // MAINTENANCE/UNAVAILABLE: PENDING bookings on the seat are cancelled in
+    // the same transaction (they would expire as no-shows otherwise).
+    // CHECKED_IN ones stay: the user is in the seat; staff resolve those.
+    const cancelled = await this.seats.manager.transaction(async (m) => {
+      await this.write(seatId, { status }, m);
+      if (status === SeatStatus.ACTIVE || !this.bookingChanges) return 0;
+      return this.bookingChanges.cancelAffected(
+        m,
+        seat.placeId,
+        { seatId },
+        'SEAT_UNAVAILABLE',
+      );
+    });
     this.logger.log(
-      `Seat status changed: id=${seatId} ${seat.status} -> ${status}`,
+      `Seat status changed: id=${seatId} ${seat.status} -> ${status} cancelledBookings=${cancelled}`,
     );
     return this.findAdmin(seatId);
   }
 
-  /** Soft delete. 409 while the seat has a PENDING, CHECKED_IN or CHECKOUT_OVERDUE booking. */
+  /**
+   * Soft delete. 409 while someone is in the seat (CHECKED_IN or
+   * CHECKOUT_OVERDUE booking); its PENDING bookings are cancelled in the same
+   * transaction.
+   */
   async softDelete(seatId: string): Promise<void> {
     const seat = await this.findAdmin(seatId);
     assertNotPartnerManaged(await this.places.getPlace(seat.placeId));
-    // shortcut: reads bookings directly; seats can't import bookings (bookings -> seats). Move behind a bookings port when one exists.
-    // Known gap: a booking created between this check and the delete is not caught; closing it needs the booking transaction to lock the seat row (bookings' code).
-    const [live] = await this.seats.manager.query(
-      "SELECT 1 FROM bookings WHERE seat_id = $1 AND status IN ('PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE') LIMIT 1",
-      [seatId],
-    );
-    if (live) {
-      this.logger.warn(`Seat delete rejected: active bookings (id=${seatId})`);
-      throw new ConflictException(
-        'Seat still has active bookings; cancel or complete them first',
+    // Without the bookings port (seats-only tests) PENDING bookings block the delete too.
+    const blocking = this.bookingChanges
+      ? ['CHECKED_IN', 'CHECKOUT_OVERDUE']
+      : ['PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE'];
+    const cancelled = await this.seats.manager.transaction(async (m) => {
+      // Row lock first: a booking being created on this seat holds FOR SHARE
+      // (findBookable), so this waits for it and the cancel below sees it.
+      await m.query('SELECT 1 FROM seats WHERE id = $1 FOR UPDATE', [seatId]);
+      // shortcut: reads bookings directly; seats can't import bookings (bookings -> seats).
+      const [live] = await m.query(
+        'SELECT 1 FROM bookings WHERE seat_id = $1 AND status = ANY($2::booking_status[]) LIMIT 1',
+        [seatId, blocking],
       );
-    }
-    await this.seats.softDelete(seatId);
+      if (live) {
+        this.logger.warn(`Seat delete rejected: active bookings (id=${seatId})`);
+        throw new ConflictException(
+          'Seat still has active bookings; cancel or complete them first',
+        );
+      }
+      await m.softDelete(Seat, { id: seatId });
+      return this.bookingChanges
+        ? this.bookingChanges.cancelAffected(m, seat.placeId, { seatId }, 'SEAT_DELETED')
+        : 0;
+    });
     this.logger.log(
-      `Seat deleted: id=${seatId} place=${seat.placeId} label=${seat.label}`,
+      `Seat deleted: id=${seatId} place=${seat.placeId} label=${seat.label} cancelledBookings=${cancelled}`,
     );
   }
 
@@ -200,9 +239,11 @@ export class SeatsService {
   private async write(
     seatId: string,
     patch: QueryDeepPartialEntity<Seat>,
+    manager?: EntityManager,
   ): Promise<void> {
+    const repo = manager ? manager.getRepository(Seat) : this.seats;
     try {
-      const { affected } = await this.seats.update(
+      const { affected } = await repo.update(
         { id: seatId, deletedAt: IsNull() },
         patch,
       );

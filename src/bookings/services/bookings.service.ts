@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
@@ -21,7 +22,6 @@ import type { TimeRange } from '../../database/transformers/tstzrange.transforme
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { PLACE_RULES, SEAT_LOOKUP } from '../bookings.ports';
 import type { PlaceRulesPort, SeatLookupPort } from '../bookings.ports';
-import { assertTransition } from '../domain/booking-state';
 import {
   AdminBookingsQueryDto,
   CancelBookingDto,
@@ -44,10 +44,9 @@ import { addMinutes } from '../domain/time';
 import { BookingsRepository } from '../repositories/bookings.repository';
 import {
   BookingActivityService,
-  BookingActor,
-  CancelReasonCode,
   BookingRoutingKey,
 } from './booking-activity.service';
+import { BookingCancellationService } from './booking-cancellation.service';
 import { BookingQrService } from './booking-qr.service';
 import { BookingRulesService } from './booking-rules.service';
 
@@ -80,6 +79,7 @@ export class BookingsService {
     private readonly activity: BookingActivityService,
     private readonly qr: BookingQrService,
     private readonly notifications: NotificationsService,
+    private readonly cancellation: BookingCancellationService,
     @Inject(SEAT_LOOKUP) private readonly seats: SeatLookupPort,
     @Inject(PLACE_RULES) private readonly placeRules: PlaceRulesPort,
     private readonly identities: ExternalIdentitiesService,
@@ -97,7 +97,7 @@ export class BookingsService {
     const key = this.normalizeKey(idempotencyKey);
     if (key) {
       const existing = await this.bookings.findByIdempotencyKey(user.id, key);
-      if (existing) return this.groupResponse(existing);
+      if (existing) return this.replay(existing, dto);
     }
 
     const seatIds = dto.seatIds;
@@ -135,7 +135,7 @@ export class BookingsService {
         );
         if (ctx.externalSystem)
           await this.assertPartnerEligibility(manager, user.id, ctx.externalSystem, ctx.timezone, now);
-        this.rules.validateNewRange(range, ctx.policy, now);
+        this.rules.validateNewRange(range, ctx.policy, now, ctx.timezone);
         if (
           !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
         ) {
@@ -143,7 +143,11 @@ export class BookingsService {
             'The place is closed during part of this time',
           );
         }
-        const active = await this.bookings.countActiveForUser(manager, user.id);
+        const active = await this.bookings.countActiveForUser(
+          manager,
+          user.id,
+          ctx.placeId,
+        );
         if (active + seats.length > ctx.policy.maxActivePerUser) {
           throw new ConflictException(
             `You can have at most ${ctx.policy.maxActivePerUser} active bookings at this place`,
@@ -192,7 +196,7 @@ export class BookingsService {
       // A concurrent retry with the same key won the race: return its booking.
       if (key && isPgError(err, PG_UNIQUE_VIOLATION, IDEMPOTENCY_UK)) {
         const existing = await this.bookings.findByIdempotencyKey(user.id, key);
-        if (existing) return this.groupResponse(existing);
+        if (existing) return this.replay(existing, dto);
       }
       throw err;
     }
@@ -244,7 +248,11 @@ export class BookingsService {
         manager,
       );
       for (const b of targets) this.rules.validateModify(b, ctx.policy, now);
-      this.rules.validateNewRange(range, ctx.policy, now);
+      await this.assertSeatsStillBookable(targets);
+      // A member suspended by the partner can't move a booking to a new time either.
+      if (ctx.externalSystem)
+        await this.assertPartnerEligibility(manager, user.id, ctx.externalSystem, ctx.timezone, now);
+      this.rules.validateNewRange(range, ctx.policy, now, ctx.timezone);
       if (
         !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
       ) {
@@ -274,7 +282,7 @@ export class BookingsService {
           ).toISOString(),
         },
       );
-      await this.rescheduleReminder(manager, ids, range, ctx.policy);
+      await this.rescheduleReminder(manager, targets, range, ctx.policy);
       await this.scheduleChangeAlert(
         manager,
         targets,
@@ -316,9 +324,17 @@ export class BookingsService {
         manager,
       );
 
+      await this.assertSeatsStillBookable(targets);
+
       const oldRanges = new Map(targets.map((b) => [b.id, b.timeRange]));
       for (const b of targets) {
-        const range = this.rules.validateExtend(b, newEnd, ctx.policy, now);
+        const range = this.rules.validateExtend(
+          b,
+          newEnd,
+          ctx.policy,
+          now,
+          ctx.timezone,
+        );
         if (
           !(await this.placeRules.isOpenForRange(ctx.placeId, range, manager))
         ) {
@@ -332,7 +348,7 @@ export class BookingsService {
           range,
           b.extensionCount + 1,
         );
-        await this.rescheduleReminder(manager, [b.id], range, ctx.policy);
+        await this.rescheduleReminder(manager, [b], range, ctx.policy);
       }
 
       await this.scheduleChangeAlert(
@@ -375,7 +391,7 @@ export class BookingsService {
       );
       for (const b of targets)
         this.rules.validateUserCancel(b, ctx.policy, now);
-      await this.cancelInTransaction(
+      await this.cancellation.cancel(
         manager,
         targets,
         { userId: user.id },
@@ -437,7 +453,7 @@ export class BookingsService {
     await this.dataSource.transaction(async (manager) => {
       const booking = await this.bookings.findById(bookingId, manager, true);
       if (!booking) throw new NotFoundException('Booking not found');
-      await this.cancelInTransaction(
+      await this.cancellation.cancel(
         manager,
         [booking],
         { userId: admin.id },
@@ -455,41 +471,74 @@ export class BookingsService {
   /**
    * System cancellation because the partner (LMS) changed the place: seat
    * removed, hours or closures changed, place closed (docs/lms-integration-proposal.md
-   * section 6.1, D4). Runs on the caller's transaction (the place sync). Each
-   * booking is cancelled on its own; other seats of its group may stay.
-   * Users get the normal cancellation alert.
+   * section 6.1, D4). Runs on the caller's transaction (the place sync).
    */
-  async cancelForPartnerChange(
+  cancelForPartnerChange(
     manager: EntityManager,
     cancellations: { bookingId: string; subReason: string }[],
     now: Date,
   ): Promise<number> {
-    if (cancellations.length === 0) return 0;
-    const bookings = await this.bookings.findByIds(
-      cancellations.map((c) => c.bookingId),
+    return this.cancellation.cancelForPlaceChange(
       manager,
+      cancellations,
+      now,
+      'LIBRARY_PLACE_CHANGED',
     );
-    const subReasons = new Map(cancellations.map((c) => [c.bookingId, c.subReason]));
-    let cancelled = 0;
-    for (const b of bookings) {
-      if (b.status !== BookingStatus.PENDING) continue;
-      const subReason = subReasons.get(b.id) ?? 'OTHER';
-      await this.cancelInTransaction(
-        manager,
-        [b],
-        'system',
-        `Library place changed (${subReason})`,
-        now,
-        'LIBRARY_PLACE_CHANGED',
-        { subReason },
-      );
-      cancelled++;
-    }
-    if (cancelled > 0) this.logger.log(`Bookings cancelled by partner place change: ${cancelled}`);
-    return cancelled;
   }
 
   // ---- helpers ----
+
+  /**
+   * 409 if any seat went into maintenance, was deleted, or its place closed
+   * since booking. Deliberately outside the transaction (no `manager`): with
+   * one, findBookable locks the seat FOR SHARE, and while this transaction
+   * already holds the booking row that could deadlock with an admin seat
+   * change (which locks the seat, then the booking). The booking row lock
+   * already makes such an admin change wait for this one and then cancel it.
+   */
+  private async assertSeatsStillBookable(targets: Booking[]): Promise<void> {
+    const seatIds = [...new Set(targets.map((b) => b.seatId))];
+    const found = await this.seats.findBookable(seatIds);
+    if (found.length !== seatIds.length) {
+      throw new ConflictException(
+        'One or more seats of this booking can no longer be booked',
+      );
+    }
+  }
+
+  /**
+   * Idempotent replay: the same key must come with the same request. A
+   * different body under a reused key is a client bug, so 422 instead of
+   * silently returning the old booking (the Stripe convention). The original
+   * range is the old range of the first MODIFIED/EXTENDED event, else the
+   * current one, so a retry still matches after the booking was changed.
+   */
+  private async replay(
+    existing: Booking,
+    dto: CreateBookingDto,
+  ): Promise<BookingGroupResponseDto> {
+    const group = existing.groupId
+      ? await this.bookings.findGroup(existing.groupId)
+      : [existing];
+    const sameSeats =
+      group.length === dto.seatIds.length &&
+      dto.seatIds.every((id) => group.some((b) => b.seatId === id));
+    const firstChange = (await this.bookings.findEvents(existing.id)).find(
+      (e) =>
+        e.type === BookingEventType.MODIFIED ||
+        e.type === BookingEventType.EXTENDED,
+    );
+    const original = firstChange?.oldRange ?? existing.timeRange;
+    const sameRange =
+      original.start.getTime() === new Date(dto.startAt).getTime() &&
+      original.end.getTime() === new Date(dto.endAt).getTime();
+    if (!sameSeats || !sameRange) {
+      throw new UnprocessableEntityException(
+        'Idempotency-Key was already used with a different request',
+      );
+    }
+    return this.groupResponse(existing);
+  }
 
   /**
    * New bookings at a partner-managed place need the user's linked partner
@@ -510,46 +559,6 @@ export class BookingsService {
       throw new ForbiddenException(
         `Your library membership does not allow booking here (${result.reasons.join(', ') || 'not eligible'})`,
       );
-  }
-
-  private async cancelInTransaction(
-    manager: EntityManager,
-    targets: Booking[],
-    actor: BookingActor,
-    reason: string | null,
-    now: Date,
-    cancelReason: CancelReasonCode,
-    extraMetadata: Record<string, unknown> = {},
-  ): Promise<void> {
-    for (const b of targets)
-      assertTransition(b.status, BookingStatus.CANCELLED);
-    const ids = targets.map((b) => b.id);
-    await this.bookings.updateFields(manager, ids, {
-      status: BookingStatus.CANCELLED,
-      cancelledAt: now,
-      cancelledBy: actor === 'system' ? null : actor.userId,
-      cancelReason: reason,
-    });
-    await this.qr.revokeLive(manager, ids);
-    await this.notifications.skipPending(manager, ids);
-    await this.notifications.schedule(
-      manager,
-      targets.map((b) => ({
-        userId: b.userId,
-        bookingId: b.id,
-        type: NotificationType.BOOKING_CANCELLED,
-        scheduledAt: now,
-        payload: this.activity.alertPayload(b, b.seat, b.seat.place),
-      })),
-    );
-    for (const b of targets) b.status = BookingStatus.CANCELLED;
-    await this.activity.record(manager, targets, {
-      event: BookingEventType.CANCELLED,
-      routingKey: BookingRoutingKey.CANCELLED,
-      actor,
-      cancelReason,
-      metadata: { ...(reason ? { reason } : {}), ...extraMetadata },
-    });
   }
 
   /** Immediate "your booking changed" alert, showing the range before and after. */
@@ -583,31 +592,36 @@ export class BookingsService {
     );
   }
 
+  /**
+   * The checkout reminder follows the new end: re-armed even if the old one was
+   * already sent (extend after the 10:45 reminder of a 10-11 booking), and
+   * created if the booking used to be too short for one. `targets` already
+   * carry the new range.
+   */
   private async rescheduleReminder(
     manager: EntityManager,
-    ids: string[],
+    targets: Booking[],
     range: TimeRange,
     policy: Parameters<BookingActivityService['checkoutReminderAt']>[1],
   ): Promise<void> {
     const at = this.activity.checkoutReminderAt(range, policy);
     if (at) {
-      await this.notifications.reschedule(
+      await this.notifications.rearm(
         manager,
-        ids,
-        NotificationType.CHECKOUT_REMINDER,
-        at,
-        {
-          ...rangeTimes(range),
-          checkinDeadline: addMinutes(
-            range.start,
-            policy.checkinGraceMinutes,
-          ).toISOString(),
-        },
+        targets.map((b) => ({
+          userId: b.userId,
+          bookingId: b.id,
+          type: NotificationType.CHECKOUT_REMINDER,
+          scheduledAt: at,
+          payload: this.activity.alertPayload(b, b.seat, b.seat.place, policy),
+        })),
       );
     } else {
-      await this.notifications.skipPending(manager, ids, [
-        NotificationType.CHECKOUT_REMINDER,
-      ]);
+      await this.notifications.skipPending(
+        manager,
+        targets.map((b) => b.id),
+        [NotificationType.CHECKOUT_REMINDER],
+      );
     }
   }
 

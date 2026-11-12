@@ -4,6 +4,7 @@ import { NotificationChannel } from '../../common/enums';
 import {
   NOTIFICATION_CHANNEL_STRATEGIES,
   NotificationChannelStrategy,
+  RateLimitedError,
   RecipientUnreachableError,
   RenderedNotification,
 } from '../channels/notification-channel.strategy';
@@ -59,9 +60,21 @@ export function nextAttemptAt(now: Date, attemptsSoFar: number): Date {
 }
 
 /**
+ * How long claimed rows are reserved for this run while their messages go out
+ * (outside any transaction). If the process dies before recording the result,
+ * the rows become due again after the lease: at-least-once delivery.
+ */
+export const LEASE_MS = 2 * 60_000;
+
+/**
  * Sends due `notifications` through the strategy registered for their channel.
  * Called by the notification-dispatch job. It never talks to a provider
  * directly, so adding a channel needs no change here.
+ *
+ * Lease pattern: rows are claimed and leased in one short transaction, sent
+ * with no transaction open (a slow provider never holds DB locks), and each
+ * batch's outcome is recorded in its own small transaction, guarded by the
+ * lease so a row re-armed or rescheduled meanwhile isn't overwritten.
  */
 @Injectable()
 export class NotificationDispatcher {
@@ -87,32 +100,58 @@ export class NotificationDispatcher {
     now: Date = new Date(),
     limit = DEFAULT_BATCH_SIZE,
   ): Promise<DispatchSummary> {
-    // Rows stay locked (SKIP LOCKED for other instances) until the batch is recorded.
-    return this.dataSource.transaction(async (manager) => {
-      const summary: DispatchSummary = {
-        sent: 0,
-        skipped: 0,
-        retrying: 0,
-        failed: 0,
-      };
-      const due = await this.repository.claimDue(manager, now, limit);
+    const summary: DispatchSummary = {
+      sent: 0,
+      skipped: 0,
+      retrying: 0,
+      failed: 0,
+    };
+    const leasedUntil = new Date(now.getTime() + LEASE_MS);
+    // 1. Claim (SKIP LOCKED) and lease: scheduled_at = leasedUntil keeps other
+    // runs and instances off these rows after this commit.
+    const due = await this.dataSource.transaction(async (manager) => {
+      const rows = await this.repository.claimDue(manager, now, limit);
+      if (rows.length === 0) return rows;
+      await this.repository.lease(
+        manager,
+        rows.map((n) => n.id),
+        leasedUntil,
+      );
       // The fact "this alert became due" goes to partners in the same
       // transaction that claims the rows, independent of delivery.
       if (this.outbox)
-        for (const event of await buildAlertDueEvents(manager, due, now))
+        for (const event of await buildAlertDueEvents(manager, rows, now))
           await this.outbox.add(manager, event);
-      for (const batch of groupForDelivery(due)) {
-        await this.deliver(manager, batch, now, summary);
-      }
-      return summary;
+      return rows;
     });
+
+    // 2 + 3. Send each batch with no transaction open; record its result.
+    const throttled = new Map<NotificationChannel, Date>();
+    for (const batch of groupForDelivery(due)) {
+      const retryAt = throttled.get(batch[0].channel);
+      if (retryAt) {
+        // The provider said to slow down: don't send the rest of this run.
+        await this.record((m) =>
+          this.repository.defer(m, batch.map((n) => n.id), retryAt, leasedUntil),
+        );
+        summary.retrying += batch.length;
+        continue;
+      }
+      await this.deliver(batch, now, leasedUntil, summary, throttled);
+    }
+    return summary;
+  }
+
+  private record(work: (m: EntityManager) => Promise<void>): Promise<void> {
+    return this.dataSource.transaction(work);
   }
 
   private async deliver(
-    manager: EntityManager,
     batch: Notification[],
     now: Date,
+    leasedUntil: Date,
     summary: DispatchSummary,
+    throttled: Map<NotificationChannel, Date>,
   ): Promise<void> {
     const first = batch[0];
     const ids = batch.map((n) => n.id);
@@ -121,9 +160,7 @@ export class NotificationDispatcher {
 
     const strategy = this.strategies.get(first.channel);
     // Rendering can throw on a malformed payload (e.g. an invalid date). It must
-    // fail this batch only: an exception escaping here would roll back the whole
-    // dispatch transaction, and batches already sent in it would be re-sent on
-    // every run.
+    // fail this batch only, never the rest of the run.
     let message: RenderedNotification | null;
     let renderError: string | null = null;
     try {
@@ -137,55 +174,70 @@ export class NotificationDispatcher {
       const reason = !strategy
         ? `No delivery strategy for channel ${first.channel}`
         : (renderError ?? `No template for type ${first.type}`);
-      await this.repository.recordFailure(manager, ids, reason, null);
+      await this.record((m) =>
+        this.repository.recordFailure(m, ids, reason, null, leasedUntil),
+      );
       summary.failed += batch.length;
       this.logger.error(`${label} failed permanently: ${reason}`);
       return;
     }
 
     try {
-      if (!(await strategy.isAvailableFor(first.userId))) {
-        await this.repository.markSkipped(
-          manager,
-          ids,
-          `User has no ${first.channel} destination`,
-        );
-        summary.skipped += batch.length;
-        this.logger.log(
-          `${label} skipped: user has no ${first.channel} destination`,
-        );
-        return;
-      }
+      // send() looks up the destination itself and throws
+      // RecipientUnreachableError when there is none (no separate lookup).
       await strategy.send(first.userId, message);
-      await this.repository.markSent(manager, ids, now);
-      summary.sent += batch.length;
     } catch (err) {
-      const reason = err instanceof Error ? err.message : 'unknown error';
-      if (err instanceof RecipientUnreachableError) {
-        await this.repository.markSkipped(manager, ids, reason);
-        summary.skipped += batch.length;
-        this.logger.log(`${label} skipped: ${reason}`);
-        return;
-      }
-      const attempts = first.attempts + 1;
-      const giveUp = attempts >= MAX_ATTEMPTS;
-      await this.repository.recordFailure(
-        manager,
-        ids,
-        reason,
-        giveUp ? null : nextAttemptAt(now, attempts),
+      await this.recordSendError(err, batch, now, leasedUntil, label, summary, throttled);
+      return;
+    }
+    await this.record((m) =>
+      this.repository.markSent(m, ids, now, leasedUntil),
+    );
+    summary.sent += batch.length;
+  }
+
+  private async recordSendError(
+    err: unknown,
+    batch: Notification[],
+    now: Date,
+    leasedUntil: Date,
+    label: string,
+    summary: DispatchSummary,
+    throttled: Map<NotificationChannel, Date>,
+  ): Promise<void> {
+    const first = batch[0];
+    const ids = batch.map((n) => n.id);
+    const reason = err instanceof Error ? err.message : 'unknown error';
+    if (err instanceof RecipientUnreachableError) {
+      await this.record((m) =>
+        this.repository.markSkipped(m, ids, reason, leasedUntil),
       );
-      if (giveUp) {
-        summary.failed += batch.length;
-        this.logger.error(
-          `${label} failed permanently after ${attempts} attempts: ${reason}`,
-        );
-      } else {
-        summary.retrying += batch.length;
-        this.logger.warn(
-          `${label} failed (attempt ${attempts}/${MAX_ATTEMPTS}), will retry: ${reason}`,
-        );
-      }
+      summary.skipped += batch.length;
+      this.logger.log(`${label} skipped: ${reason}`);
+      return;
+    }
+    const attempts = first.attempts + 1;
+    const giveUp = attempts >= MAX_ATTEMPTS;
+    let retryAt = giveUp ? null : nextAttemptAt(now, attempts);
+    if (err instanceof RateLimitedError) {
+      // Honour the provider's retry_after, and stop this channel for the run.
+      const notBefore = new Date(now.getTime() + err.retryAfterMs);
+      if (retryAt && notBefore > retryAt) retryAt = notBefore;
+      throttled.set(first.channel, retryAt ?? notBefore);
+    }
+    await this.record((m) =>
+      this.repository.recordFailure(m, ids, reason, retryAt, leasedUntil),
+    );
+    if (!retryAt) {
+      summary.failed += batch.length;
+      this.logger.error(
+        `${label} failed permanently after ${attempts} attempts: ${reason}`,
+      );
+    } else {
+      summary.retrying += batch.length;
+      this.logger.warn(
+        `${label} failed (attempt ${attempts}/${MAX_ATTEMPTS}), will retry: ${reason}`,
+      );
     }
   }
 }

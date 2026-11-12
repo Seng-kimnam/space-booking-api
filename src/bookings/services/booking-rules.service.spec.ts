@@ -100,6 +100,50 @@ describe('BookingRulesService', () => {
     });
   });
 
+  describe('slot alignment in the place timezone', () => {
+    const hourly = { ...policy, slotMinutes: 60 } as BookingPolicy;
+
+    it('accepts 10:00-11:00 local in a half-hour zone (Asia/Kolkata, +05:30)', () => {
+      // 10:00 IST = 04:30Z: not on a UTC hour, but on a local one.
+      const range = { start: at('2026-11-09T04:30:00.000Z'), end: at('2026-11-09T05:30:00.000Z') };
+      expect(() => rules.validateNewRange(range, hourly, now, 'Asia/Kolkata')).not.toThrow();
+      expect(() => rules.validateNewRange(range, hourly, now, 'UTC')).toThrow(BadRequestException);
+    });
+
+    it('rejects a UTC hour that is a half hour locally', () => {
+      const range = { start: at('2026-11-09T04:00:00.000Z'), end: at('2026-11-09T05:00:00.000Z') };
+      expect(() => rules.validateNewRange(range, hourly, now, 'Asia/Kolkata')).toThrow(BadRequestException);
+    });
+
+    it('keeps whole-hour zones unchanged (Asia/Phnom_Penh)', () => {
+      const range = { start: at('2026-11-09T03:00:00.000Z'), end: at('2026-11-09T04:00:00.000Z') };
+      expect(() => rules.validateNewRange(range, hourly, now, 'Asia/Phnom_Penh')).not.toThrow();
+    });
+
+    it('applies to extend too', () => {
+      const b = booking({
+        timeRange: { start: at('2026-11-09T04:30:00.000Z'), end: at('2026-11-09T05:30:00.000Z') },
+      });
+      expect(
+        rules.validateExtend(b, at('2026-11-09T06:30:00.000Z'), hourly, now, 'Asia/Kolkata').end,
+      ).toEqual(at('2026-11-09T06:30:00.000Z'));
+    });
+  });
+
+  describe('validateExtend and max_advance_days', () => {
+    it('rejects extending a booking whose start is beyond the (shortened) advance window', () => {
+      // Booked 7 days ahead, then the policy went down to 1 day.
+      const b = booking({
+        timeRange: { start: at('2026-11-15T03:00:00.000Z'), end: at('2026-11-15T04:00:00.000Z') },
+      });
+      const shorter = { ...policy, maxAdvanceDays: 1 } as BookingPolicy;
+      expect(() => rules.validateExtend(b, at('2026-11-15T04:30:00.000Z'), shorter, now)).toThrow(
+        BadRequestException,
+      );
+      expect(() => rules.validateExtend(b, at('2026-11-15T04:30:00.000Z'), policy, now)).not.toThrow();
+    });
+  });
+
   it('checkInWindow opens early and closes at start + grace', () => {
     expect(rules.checkInWindow(booking().timeRange, policy, 15)).toEqual({
       opensAt: at('2026-11-09T02:45:00.000Z'),

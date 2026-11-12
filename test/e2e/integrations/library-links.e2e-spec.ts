@@ -61,7 +61,7 @@ describe('LMS account linking (real Postgres)', () => {
     ds = app.get(DataSource);
     admin = await signToken(app, 'ADMIN');
     [{ id: userId }] = await ds.query(
-      `INSERT INTO users (name, email, role_id) VALUES ('Link e2e', $1, (SELECT id FROM roles WHERE name = 'USER')) RETURNING id`,
+      `INSERT INTO users (name, email, role_id, password_hash) VALUES ('Link e2e', $1, (SELECT id FROM roles WHERE name = 'USER'), 'test-hash') RETURNING id`,
       [`link-${run}@example.test`],
     );
     userToken = await signToken(app, 'USER', userId);

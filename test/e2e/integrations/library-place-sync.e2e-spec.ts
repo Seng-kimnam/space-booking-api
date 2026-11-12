@@ -202,7 +202,7 @@ describe('LMS place sync (e2e)', () => {
   it('swaps labels, removes a seat and its empty area, and cancels the future booking on that seat', async () => {
     await ds.query('UPDATE places SET is_active = true WHERE id = $1', [sbPlaceId]);
     const [{ id: userId }] = await ds.query(
-      `INSERT INTO users (name, email, role_id) VALUES ('LMS e2e', $1, (SELECT id FROM roles WHERE name = 'USER')) RETURNING id`,
+      `INSERT INTO users (name, email, role_id, password_hash) VALUES ('LMS e2e', $1, (SELECT id FROM roles WHERE name = 'USER'), 'test-hash') RETURNING id`,
       [`lms-e2e-${run}@example.test`],
     );
     userIds.push(userId);
@@ -279,7 +279,7 @@ describe('LMS place sync (e2e)', () => {
 
   it('closing the place in LMS makes it unbookable and cancels future bookings', async () => {
     const [{ id: userId }] = await ds.query(
-      `INSERT INTO users (name, email, role_id) VALUES ('LMS e2e 2', $1, (SELECT id FROM roles WHERE name = 'USER')) RETURNING id`,
+      `INSERT INTO users (name, email, role_id, password_hash) VALUES ('LMS e2e 2', $1, (SELECT id FROM roles WHERE name = 'USER'), 'test-hash') RETURNING id`,
       [`lms-e2e2-${run}@example.test`],
     );
     userIds.push(userId);

@@ -89,6 +89,33 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Queues a once-per-booking alert again for a new time, even if it was
+   * already sent or skipped (CHECKOUT_REMINDER after an extend or modify),
+   * creating it where it doesn't exist yet.
+   */
+  rearm(
+    manager: EntityManager,
+    alerts: ScheduleBookingAlert[],
+  ): Promise<void> {
+    if (alerts.length > 0) {
+      this.logger.debug(
+        `Alerts re-armed: ${alerts.map((a) => `${a.type}@${a.scheduledAt.toISOString()}`).join(', ')} bookings=${alerts.map((a) => a.bookingId).join(',')}`,
+      );
+    }
+    return this.repository.rearm(
+      manager,
+      alerts.map((a) => ({
+        userId: a.userId,
+        bookingId: a.bookingId,
+        channel: this.channelFor(a.type),
+        type: a.type,
+        scheduledAt: a.scheduledAt,
+        payload: a.payload,
+      })),
+    );
+  }
+
   /** Pending alerts that no longer apply (checked in, cancelled, expired) become SKIPPED. */
   skipPending(
     manager: EntityManager,

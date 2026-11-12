@@ -55,9 +55,16 @@ export class BookingLifecycleService {
         expiredAt: now,
       });
 
-      const noShowGroups = new Map<string, string>();
-      for (const b of due) noShowGroups.set(b.groupId ?? b.id, b.userId);
-      for (const userId of noShowGroups.values()) {
+      // Once per multi-seat booking, across runs: a group split over batches,
+      // or whose seats expire at different times after a per-seat modify, is
+      // counted by the first run only, and not at all if a seat was attended.
+      const noShowGroups = new Map<string, { userId: string; grouped: boolean }>();
+      for (const b of due)
+        noShowGroups.set(b.groupId ?? b.id, { userId: b.userId, grouped: !!b.groupId });
+      // Sorted: advisory locks are always taken in the same order (no deadlock between instances).
+      for (const key of [...noShowGroups.keys()].sort()) {
+        const { userId, grouped } = noShowGroups.get(key)!;
+        if (grouped && (await this.bookings.noShowAlreadySettled(manager, key, ids))) continue;
         await this.noShows.incrementNoShow(manager, userId);
       }
 
