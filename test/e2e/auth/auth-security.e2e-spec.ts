@@ -7,7 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AuthService, MAX_OTP_ATTEMPTS } from '../../../src/auth/auth.service';
+import { AuthService, MAX_OTP_ATTEMPTS } from '../../../src/auth/services/auth.service';
 import { createTestApp } from '../../utils/create-test-app';
 
 // docs/auth.md findings C1 (rejected admin request kept ADMIN) and H1 (OTP

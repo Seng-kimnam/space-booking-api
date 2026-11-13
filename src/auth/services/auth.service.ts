@@ -23,14 +23,14 @@ import {
   AdminRequestStatus,
   User,
   UserRole,
-} from '../users/entities/user.entity';
-import { Role } from '../roles/entities/role.entity';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { UserOtp } from '../users/entities/user-otp.entity';
-import { OtpPurpose } from '../common/enums';
+} from '../../users/entities/user.entity';
+import { Role } from '../../roles/entities/role.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserOtp } from '../../users/entities/user-otp.entity';
+import { OtpPurpose } from '../../common/enums/index';
 import { MailService } from './mail.service';
-import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
-import { GoogleProfile } from './strategies/google.strategy';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
+import { GoogleProfile } from '../strategies/google.strategy';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;

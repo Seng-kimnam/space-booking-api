@@ -1,7 +1,7 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthGuard } from './auth.guard';
-import { jwtModuleOptions } from './jwt-options';
+import { jwtModuleOptions } from '../config/jwt-options';
 
 // docs/auth.md "JWT configuration": the guard verifies with the same options
 // AuthModule registers (jwt-options.ts), using a real JwtService.

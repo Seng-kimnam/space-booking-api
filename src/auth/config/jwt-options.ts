@@ -1,6 +1,6 @@
 import { ConfigType } from '@nestjs/config';
 import { JwtModuleOptions } from '@nestjs/jwt';
-import { authConfig } from '../configuration/auth.config';
+import { authConfig } from '../../configuration/auth.config';
 
 type ExpiresIn = NonNullable<
   NonNullable<JwtModuleOptions['signOptions']>['expiresIn']

@@ -13,7 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
-import { AuthService } from './auth.service';
+import { AuthService } from '../services/auth.service';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -23,21 +23,21 @@ import {
   ResendOtpDto,
   ResetPasswordDto,
   VerifyEmailDto,
-} from './dto/auth.dto';
-import { AuthGuard } from './auth.guard';
+} from '../dto/auth.dto';
+import { AuthGuard } from '../guards/auth.guard';
 import {
   AuthThrottle,
   LOGIN_LIMITS,
   OTP_CHECK_LIMITS,
   OTP_SEND_LIMITS,
   REFRESH_LIMITS,
-} from './auth-throttle';
-import { CurrentUser } from './current-user.decorator';
-import { Roles } from './role.decorator';
-import { RolesInterceptor } from './roles.interceptor';
-import { UserRole } from '../users/entities/user.entity';
-import { GoogleAuthGuard } from './guards/google-auth.guard';
-import { GoogleProfile } from './strategies/google.strategy';
+} from '../config/auth-throttle';
+import { CurrentUser } from '../decorators/current-user.decorator';
+import { Roles } from '../decorators/role.decorator';
+import { RolesInterceptor } from '../interceptors/roles.interceptor';
+import { UserRole } from '../../users/entities/user.entity';
+import { GoogleAuthGuard } from '../guards/google-auth.guard';
+import { GoogleProfile } from '../strategies/google.strategy';
 
 type JwtUser = {
   sub: string;

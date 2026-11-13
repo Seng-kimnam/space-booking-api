@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
-import { AuthService } from '../auth/auth.service';
+import { AuthService } from '../auth/services/auth.service';
 import { UserRole } from '../common/enums';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
 import { Role } from '../roles/entities/role.entity';

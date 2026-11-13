@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthGuard } from '../auth/auth.guard';
-import { AuthService } from '../auth/auth.service';
-import { SessionsService } from '../auth/sessions.service';
+import { AuthGuard } from '../auth/guards/auth.guard';
+import { AuthService } from '../auth/services/auth.service';
+import { SessionsService } from '../auth/services/sessions.service';
 import { AccountStatusService } from './account-status.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminUsersController } from './admin-users.controller';

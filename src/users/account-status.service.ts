@@ -10,8 +10,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { AuthService } from '../auth/auth.service';
-import { SessionInfo, SessionsService } from '../auth/sessions.service';
+import { AuthService } from '../auth/services/auth.service';
+import { SessionInfo, SessionsService } from '../auth/services/sessions.service';
 import { canManage } from './account-policy';
 import { User } from './entities/user.entity';
 import { USER_BOOKINGS } from './users.ports';

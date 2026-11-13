@@ -23,8 +23,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthService } from '../auth/auth.service';
-import { SessionsService } from '../auth/sessions.service';
+import { AuthService } from '../auth/services/auth.service';
+import { SessionsService } from '../auth/services/sessions.service';
 import { CurrentAuthUser } from '../common/decorators/current-auth-user.decorator';
 import { Secured } from '../common/decorators/secured.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';

@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
-import { LOGIN_LIMITS, OTP_SEND_LIMITS } from '../../../src/auth/auth-throttle';
+import { LOGIN_LIMITS, OTP_SEND_LIMITS } from '../../../src/auth/config/auth-throttle';
 import { createTestApp } from '../../utils/create-test-app';
 
 // docs/auth.md finding H2. Throttle counters are in-memory per app instance and

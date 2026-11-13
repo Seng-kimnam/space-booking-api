@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { AuthCleanupService } from '../auth/auth-cleanup.service';
+import { AuthCleanupService } from '../auth/services/auth-cleanup.service';
 import { ExclusiveRunner } from './exclusive-runner';
 
 /** Hourly: deletes expired OTPs and refresh tokens (AuthCleanupService). */

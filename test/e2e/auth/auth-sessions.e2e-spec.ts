@@ -3,7 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AuthService } from '../../../src/auth/auth.service';
+import { AuthService } from '../../../src/auth/services/auth.service';
 import { signToken } from '../../utils/auth-tokens';
 import { createTestApp } from '../../utils/create-test-app';
 

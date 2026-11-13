@@ -18,13 +18,13 @@ import {
   REFRESH_REUSE_GRACE_MS,
   REGISTER_MESSAGE,
 } from './auth.service';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { UserOtp } from '../users/entities/user-otp.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserOtp } from '../../users/entities/user-otp.entity';
 import {
   AdminRequestStatus,
   User,
   UserRole,
-} from '../users/entities/user.entity';
+} from '../../users/entities/user.entity';
 
 // Hand-rolled fakes (testing skill). Query-builder UPDATE/DELETE calls take
 // their `.raw` rows from a queue, in call order.

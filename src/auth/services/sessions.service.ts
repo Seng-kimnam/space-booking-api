@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, MoreThan, Repository } from 'typeorm';
-import { RefreshToken } from './entities/refresh-token.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
 
 /** A live sign-in (one refresh-token chain). Never includes the token or its hash. */
 export interface SessionInfo {
