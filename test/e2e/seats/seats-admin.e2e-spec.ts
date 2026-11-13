@@ -627,7 +627,8 @@ describe('seats admin writes (real Postgres)', () => {
     });
 
     describe('live bookings', () => {
-      it.each(['PENDING', 'CHECKED_IN', 'CHECKOUT_OVERDUE'])(
+      // Someone is in the seat: staff check them out first.
+      it.each(['CHECKED_IN', 'CHECKOUT_OVERDUE'])(
         '409 while the seat has a %s booking, seat still readable',
         async (status) => {
           const made = (await create(P, { label: lbl() })).body;
@@ -649,19 +650,36 @@ describe('seats admin writes (real Postgres)', () => {
         await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
       });
 
-      it('204 once the live booking is cancelled', async () => {
+      it('204 once the checked-in booking is completed', async () => {
+        const made = (await create(P, { label: lbl() })).body;
+        const bookingId = await insertBooking(
+          made.id,
+          await insertUser(),
+          'CHECKED_IN',
+        );
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(409);
+        await ds.query(
+          `UPDATE bookings SET status = 'COMPLETED', checked_out_at = now(), check_out_method = 'MANUAL' WHERE id = $1`,
+          [bookingId],
+        );
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
+      });
+
+      // docs/improvement-plan.md item 1: a PENDING booking would otherwise
+      // expire as a no-show the user didn't cause.
+      it('204 with a PENDING booking, which is cancelled in the same transaction', async () => {
         const made = (await create(P, { label: lbl() })).body;
         const bookingId = await insertBooking(
           made.id,
           await insertUser(),
           'PENDING',
         );
-        await api('delete', `/admin/seats/${made.id}`, admin).expect(409);
-        await ds.query(
-          `UPDATE bookings SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1`,
+        await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
+        const [row] = await ds.query(
+          `SELECT status FROM bookings WHERE id = $1`,
           [bookingId],
         );
-        await api('delete', `/admin/seats/${made.id}`, admin).expect(204);
+        expect(row.status).toBe('CANCELLED');
       });
 
       it('status change to MAINTENANCE is allowed with a live booking', async () => {
@@ -674,6 +692,12 @@ describe('seats admin writes (real Postgres)', () => {
         ).send({ status: 'MAINTENANCE' });
         expect(res.status).toBe(200);
         expect(res.body.status).toBe('MAINTENANCE');
+        // The PENDING booking can't happen any more: cancelled, not left to expire.
+        const [row] = await ds.query(
+          `SELECT status FROM bookings WHERE seat_id = $1`,
+          [made.id],
+        );
+        expect(row.status).toBe('CANCELLED');
       });
     });
   });

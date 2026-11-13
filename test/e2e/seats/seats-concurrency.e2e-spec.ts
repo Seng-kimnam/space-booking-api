@@ -224,7 +224,8 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
     const newLabel = `new-${randomUUID().slice(0, 8)}`;
     const repo = app.get<Repository<Seat>>(getRepositoryToken(Seat));
     const realSave = repo.save.bind(repo);
-    const realUpdate = repo.update.bind(repo);
+    // setStatus writes through its transaction's repository, not the injected one.
+    const protoUpdate = Repository.prototype.update;
     let fired = false;
     const firstWrite = async <R>(run: () => Promise<R>): Promise<R> => {
       if (!fired) {
@@ -242,10 +243,13 @@ describe('seats label uniqueness under concurrency (real Postgres)', () => {
         firstWrite(() => realSave(...args)),
       );
     const spyUpdate = jest
-      .spyOn(repo, 'update')
-      .mockImplementation((...args: Parameters<typeof realUpdate>) =>
-        firstWrite(() => realUpdate(...args)),
-      );
+      .spyOn(Repository.prototype, 'update')
+      .mockImplementation(function (
+        this: Repository<Seat>,
+        ...args: Parameters<Repository<Seat>['update']>
+      ) {
+        return firstWrite(() => protoUpdate.apply(this, args));
+      });
     try {
       const r = await send('patch', `/admin/seats/${id}/status`, {
         status: 'MAINTENANCE',

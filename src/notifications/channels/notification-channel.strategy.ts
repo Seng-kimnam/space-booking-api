@@ -21,17 +21,26 @@ export interface RenderedNotification {
 export interface NotificationChannelStrategy {
   readonly channel: NotificationChannel;
 
-  /** False when the user can't be reached on this channel (e.g. no linked chat): the row is SKIPPED. */
-  isAvailableFor(userId: string): Promise<boolean>;
-
   /**
    * Delivers the message. Throw RecipientUnreachableError when retrying can't
-   * help (row becomes SKIPPED); any other error is retried with backoff.
+   * help, including when the user has no destination on this channel (e.g. no
+   * linked chat): the row becomes SKIPPED. Throw RateLimitedError when the
+   * provider asks to slow down. Any other error is retried with backoff.
    */
   send(userId: string, message: RenderedNotification): Promise<void>;
 }
 
 export class RecipientUnreachableError extends Error {}
+
+/** The provider asked us to wait (Telegram 429 `retry_after`). */
+export class RateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number,
+  ) {
+    super(message);
+  }
+}
 
 /** Multi-provider token: the array of every registered strategy. */
 export const NOTIFICATION_CHANNEL_STRATEGIES = Symbol(

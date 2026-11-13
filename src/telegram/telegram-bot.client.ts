@@ -11,8 +11,14 @@ export class TelegramApiError extends Error {
   constructor(
     readonly errorCode: number,
     readonly description: string,
+    /** 429 only: seconds Telegram asks us to wait (parameters.retry_after). */
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(`Telegram API error ${errorCode}: ${description}`);
+  }
+
+  get isRateLimited(): boolean {
+    return this.errorCode === 429;
   }
 
   /**
@@ -33,6 +39,7 @@ interface TelegramResponse<T> {
   result?: T;
   error_code?: number;
   description?: string;
+  parameters?: { retry_after?: number };
 }
 
 /**
@@ -110,9 +117,11 @@ export class TelegramBotClient {
       );
     }
     if (!data.ok) {
+      const retryAfter = data.parameters?.retry_after;
       throw new TelegramApiError(
         data.error_code ?? response.status,
         data.description ?? 'unknown error',
+        typeof retryAfter === 'number' ? retryAfter : null,
       );
     }
     return data.result as T;

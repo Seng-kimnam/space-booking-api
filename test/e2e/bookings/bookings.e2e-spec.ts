@@ -61,9 +61,10 @@ describe('Bookings (integration, real Postgres)', () => {
     // Taken before the await, so parallel calls get distinct emails.
     const n = userSeq++;
     const [{ id }] = await ds.query(
-      // role_id since migration 1794161000000-UserRoleRelation dropped users.role.
-      `INSERT INTO users (name, email, role_id)
-       VALUES ($1, $2, (SELECT id FROM roles WHERE name = $3)) RETURNING id`,
+      // role_id since migration 1794161000000-UserRoleRelation dropped users.role;
+      // password_hash because CHK_users_has_credential (1794329131663-AddGoogleLogin).
+      `INSERT INTO users (name, email, role_id, password_hash)
+       VALUES ($1, $2, (SELECT id FROM roles WHERE name = $3), 'test-hash') RETURNING id`,
       ['Test', `it-${run}-${n}@example.test`, role],
     );
     userIds.push(id);

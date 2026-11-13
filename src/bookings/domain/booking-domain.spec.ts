@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { BookingStatus } from '../../common/enums';
 import { assertTransition, canTransition } from './booking-state';
 import { buildQrPayload, hashQrSecret, newQrSecret, parseQrPayload } from './qr-token';
-import { formatInZone } from './time';
+import { formatInZone, zoneOffsetMinutes } from './time';
 
 describe('booking-state', () => {
   it.each([
@@ -66,5 +66,22 @@ describe('qr-token', () => {
 describe('formatInZone', () => {
   it("shows the place's wall-clock time", () => {
     expect(formatInZone(new Date('2026-11-09T03:00:00.000Z'), 'Asia/Phnom_Penh')).toBe('2026-11-09 10:00');
+  });
+});
+
+describe('zoneOffsetMinutes', () => {
+  const d = new Date('2026-01-15T12:00:00.000Z');
+  it.each([
+    ['Asia/Kolkata', 330],
+    ['Asia/Phnom_Penh', 420],
+    ['America/St_Johns', -210],
+    ['UTC', 0],
+    ['Not/AZone', 0],
+  ])('%s -> %i', (zone, minutes) => {
+    expect(zoneOffsetMinutes(d, zone)).toBe(minutes);
+  });
+
+  it('follows DST (Europe/Berlin summer)', () => {
+    expect(zoneOffsetMinutes(new Date('2026-07-01T12:00:00.000Z'), 'Europe/Berlin')).toBe(120);
   });
 });

@@ -16,6 +16,8 @@ import type { AuthUser } from '../../common/types/auth-user';
 import { ScanQrDto } from '../dto/booking-request.dto';
 import { AttendanceResponseDto } from '../dto/booking-response.dto';
 import { AttendanceService } from '../services/attendance.service';
+import { Publishes } from '../../messaging/contract/publishes.decorator';
+import { MessageType } from '../../messaging/contract/schemas';
 
 @ApiTags('Check-in & Check-out')
 @ApiBearerAuth()
@@ -25,6 +27,7 @@ export class AttendanceController {
   constructor(private readonly attendance: AttendanceService) {}
 
   @Post('check-in/scan')
+  @Publishes(MessageType.BOOKING_CHECKED_IN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Check in by scanning a one-time QR' })
   @ApiOkResponse({ type: AttendanceResponseDto })
@@ -36,6 +39,7 @@ export class AttendanceController {
   }
 
   @Post('check-out/scan')
+  @Publishes(MessageType.BOOKING_CHECKED_OUT)
   @HttpCode(200)
   @ApiOperation({ summary: 'Check out by scanning a one-time QR (also closes a forgotten checkout)' })
   @ApiOkResponse({ type: AttendanceResponseDto })

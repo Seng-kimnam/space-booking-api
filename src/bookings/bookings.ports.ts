@@ -1,5 +1,7 @@
 import type { EntityManager } from 'typeorm';
 import type { TimeRange } from '../database/transformers/tstzrange.transformer';
+import type { PublishedMessageType } from '../messaging/contract/schemas';
+import type { NewOutboxEvent } from '../messaging/outbox/outbox.service';
 import type { BookingPolicy } from '../places/entities/booking-policy.entity';
 
 /**
@@ -37,6 +39,8 @@ export interface PlaceBookingContext {
   /** IANA zone, e.g. Asia/Phnom_Penh. */
   timezone: string;
   policy: BookingPolicy;
+  /** Partner managing the place ('library' = LMS), null/undefined when our admins do. */
+  externalSystem?: string | null;
 }
 
 /** places module: PlacesService + BookingPoliciesService + OpeningHoursService. */
@@ -59,18 +63,18 @@ export interface NoShowCounterPort {
   incrementNoShow(manager: EntityManager, userId: string): Promise<void>;
 }
 
-export interface OutboxEventInput {
-  aggregateType: string;
-  aggregateId: string;
-  /** RabbitMQ routing key, e.g. booking.created (docs/api-endpoints.md section 9). */
-  eventType: string;
-  /** No secrets, tokens or password fields. */
-  payload: Record<string, unknown>;
-}
+/**
+ * A message from the contract (src/messaging/contract/schemas.ts): routing key
+ * plus its typed payload. OutboxService refuses anything that doesn't match.
+ */
+export type OutboxEventInput<K extends PublishedMessageType = PublishedMessageType> = NewOutboxEvent<K>;
 
 /** messaging module, OutboxService. */
 export const OUTBOX = Symbol('OUTBOX');
 export interface OutboxPort {
-  /** Inserts an outbox_events row on `manager` (same transaction as the change). */
-  add(manager: EntityManager, event: OutboxEventInput): Promise<void>;
+  /**
+   * Inserts an outbox_events row on `manager` (same transaction as the change).
+   * Throws ContractViolationError if the payload breaks the contract.
+   */
+  add<K extends PublishedMessageType>(manager: EntityManager, event: OutboxEventInput<K>): Promise<void>;
 }

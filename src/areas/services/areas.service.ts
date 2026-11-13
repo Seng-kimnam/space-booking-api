@@ -8,7 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
-import { PlacesService } from '../../places/services/places.service';
+import {
+  assertNotPartnerManaged,
+  PlacesService,
+} from '../../places/services/places.service';
 import {
   AreaPageResponseDto,
   CreateAreaDto,
@@ -51,7 +54,7 @@ export class AreasService {
 
   /** Admins may add areas to inactive places, not to deleted ones. */
   async create(placeId: string, dto: CreateAreaDto): Promise<Area> {
-    await this.places.getPlace(placeId);
+    assertNotPartnerManaged(await this.places.getPlace(placeId));
     const area = await this.save(
       this.areas.create({
         placeId,
@@ -69,6 +72,7 @@ export class AreasService {
 
   async update(areaId: string, dto: UpdateAreaDto): Promise<Area> {
     const area = await this.findForAdmin(areaId);
+    assertNotPartnerManaged(await this.places.getPlace(area.placeId));
     if (dto.name !== undefined) area.name = dto.name;
     if (dto.floor !== undefined) area.floor = dto.floor;
     if (dto.description !== undefined) area.description = dto.description;
@@ -86,6 +90,7 @@ export class AreasService {
   /** Soft delete. 409 while non-deleted seats are still assigned to the area. */
   async softDelete(areaId: string): Promise<void> {
     const area = await this.findForAdmin(areaId);
+    assertNotPartnerManaged(await this.places.getPlace(area.placeId));
     // shortcut: reads seats directly; areas can't import seats (seats -> areas in
     // docs/project-structure.md section 3). A soft delete skips the seats FK, so
     // without this a seat would keep pointing at a deleted area.

@@ -13,7 +13,8 @@ import { AuthService } from '../auth/auth.service';
 import { MailService } from '../auth/mail.service';
 import { BookingLifecycleService } from '../bookings/services/booking-lifecycle.service';
 import { BookingQrService } from '../bookings/services/booking-qr.service';
-import { NotificationType } from './enums';
+import { BookingCancellationService } from '../bookings/services/booking-cancellation.service';
+import { BookingStatus, NotificationType } from './enums';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { RolesGuard } from './guards/roles.guard';
 
@@ -246,6 +247,7 @@ describe('BookingLifecycleService logging', () => {
         claimExpirable: jest.fn().mockResolvedValue(expirable),
         claimOverdue: jest.fn().mockResolvedValue(overdue),
         updateFields: jest.fn(),
+        noShowAlreadySettled: jest.fn().mockResolvedValue(false),
       } as never,
       { alertPayload: () => ({}), record: jest.fn() } as never,
       { revokeLive: jest.fn() } as never,
@@ -297,6 +299,7 @@ describe('NotificationsService logging', () => {
     insertIgnoringDuplicates: jest.fn(),
     reschedulePending: jest.fn(),
     skipPending: jest.fn(),
+    rearm: jest.fn(),
   };
   const svc = new NotificationsService(repo as never);
   const manager = {} as EntityManager;
@@ -329,9 +332,57 @@ describe('NotificationsService logging', () => {
     expect(spies.log).not.toHaveBeenCalled();
   });
 
+  it('debug-logs re-armed alerts without payloads', async () => {
+    await svc.rearm(manager, [
+      {
+        userId: 'u1',
+        bookingId: 'b1',
+        type: NotificationType.CHECKOUT_REMINDER,
+        scheduledAt: at,
+        payload: { placeName: 'Secret Library' } as never,
+      },
+    ]);
+    expect(spies.debug).toHaveBeenCalledWith(
+      'Alerts re-armed: CHECKOUT_REMINDER@2026-11-10T03:00:00.000Z bookings=b1',
+    );
+    expect(allLines()).not.toContain('Secret Library');
+  });
+
   it('logs nothing for empty calls', async () => {
     await svc.schedule(manager, []);
     await svc.skipPending(manager, []);
     expect(allLines()).toBe('');
+  });
+});
+
+describe('BookingCancellationService logging', () => {
+  it('logs only the count and reason code of place-change cancellations', async () => {
+    const booking = {
+      id: 'b1',
+      userId: 'u1',
+      groupId: 'g1',
+      status: BookingStatus.PENDING,
+      timeRange: { start: new Date(), end: new Date() },
+      seat: { label: 'A1', place: { name: 'Secret Library', timezone: 'UTC' } },
+    };
+    const svc = new BookingCancellationService(
+      {
+        findByIds: jest.fn().mockResolvedValue([booking]),
+        updateFields: jest.fn(),
+      } as never,
+      { alertPayload: () => ({}), record: jest.fn() } as never,
+      { revokeLive: jest.fn() } as never,
+      { skipPending: jest.fn(), schedule: jest.fn() } as never,
+    );
+    await svc.cancelForPlaceChange(
+      {} as EntityManager,
+      [{ bookingId: 'b1', subReason: 'SEAT_DELETED' }],
+      new Date(),
+      'ADMIN_CANCELLED',
+    );
+    expect(spies.log).toHaveBeenCalledWith(
+      'Bookings cancelled by place change: count=1 reason=ADMIN_CANCELLED',
+    );
+    expect(allLines()).not.toContain('Secret Library');
   });
 });

@@ -5,6 +5,9 @@ import type { TimeRange } from '../../database/transformers/tstzrange.transforme
 import type { BookingPolicy } from '../../places/entities/booking-policy.entity';
 import type { ScheduleBookingAlert } from '../../notifications/services/notifications.service';
 import type { BookingAlertPayload } from '../../notifications/templates/notification-templates';
+import { MessageType } from '../../messaging/contract/schemas';
+import type { BookingEventV1, BookingExternalV1 } from '../../messaging/contract/types';
+import { ExternalIdentitiesService } from '../../external-identities/external-identities.service';
 import { OUTBOX } from '../bookings.ports';
 import type { OutboxPort } from '../bookings.ports';
 import { addMinutes } from '../domain/time';
@@ -14,16 +17,22 @@ import { Booking } from '../entities/booking.entity';
 /** Who made a change. API clients will add a `clientId` variant. */
 export type BookingActor = { userId: string } | 'system';
 
-/** Outbox routing keys (docs/api-endpoints.md section 9). */
+/**
+ * Machine reason on booking.cancelled events (docs/integration/schemas/booking.v1.json).
+ * User free text stays in bookings.cancel_reason and is never published.
+ */
+export type CancelReasonCode = 'USER_CANCELLED' | 'ADMIN_CANCELLED' | 'LIBRARY_PLACE_CHANGED';
+
+/** Booking routing keys, from the contract registry (src/messaging/contract/schemas.ts). */
 export const BookingRoutingKey = {
-  CREATED: 'booking.created',
-  MODIFIED: 'booking.modified',
-  EXTENDED: 'booking.extended',
-  CANCELLED: 'booking.cancelled',
-  CHECKED_IN: 'booking.checked_in',
-  CHECKED_OUT: 'booking.checked_out',
-  EXPIRED: 'booking.expired',
-  CHECKOUT_OVERDUE: 'booking.checkout_overdue',
+  CREATED: MessageType.BOOKING_CREATED,
+  MODIFIED: MessageType.BOOKING_MODIFIED,
+  EXTENDED: MessageType.BOOKING_EXTENDED,
+  CANCELLED: MessageType.BOOKING_CANCELLED,
+  CHECKED_IN: MessageType.BOOKING_CHECKED_IN,
+  CHECKED_OUT: MessageType.BOOKING_CHECKED_OUT,
+  EXPIRED: MessageType.BOOKING_EXPIRED,
+  CHECKOUT_OVERDUE: MessageType.BOOKING_CHECKOUT_OVERDUE,
 } as const;
 
 export interface RecordOptions {
@@ -32,6 +41,8 @@ export interface RecordOptions {
   actor: BookingActor;
   /** MODIFIED / EXTENDED: range before the change, by booking id. */
   oldRanges?: Map<string, TimeRange>;
+  /** CANCELLED only. */
+  cancelReason?: CancelReasonCode;
   metadata?: Record<string, unknown>;
 }
 
@@ -45,7 +56,10 @@ const EVENT_SCHEMA_VERSION = 1;
  */
 @Injectable()
 export class BookingActivityService {
-  constructor(@Inject(OUTBOX) private readonly outbox: OutboxPort) {}
+  constructor(
+    @Inject(OUTBOX) private readonly outbox: OutboxPort,
+    private readonly identities: ExternalIdentitiesService,
+  ) {}
 
   async record(
     manager: EntityManager,
@@ -73,13 +87,10 @@ export class BookingActivityService {
       ),
     );
 
+    const memberIds = await this.partnerMemberIds(manager, bookings);
     for (const b of bookings) {
-      await this.outbox.add(manager, {
-        aggregateType: 'booking',
-        aggregateId: b.id,
-        eventType: options.routingKey,
-        // No secrets: no idempotency key, no QR data.
-        payload: {
+      const payload: BookingEventV1 & { schemaVersion: number } = {
+        // No secrets: no idempotency key, no QR data. Shape: booking.v1.json.
           schemaVersion: EVENT_SCHEMA_VERSION,
           bookingId: b.id,
           groupId: b.groupId,
@@ -90,17 +101,53 @@ export class BookingActivityService {
           status: b.status,
           startAt: b.timeRange.start.toISOString(),
           endAt: b.timeRange.end.toISOString(),
-          ...(rangeChanged && options.oldRanges?.get(b.id)
-            ? {
-                previousStartAt: options.oldRanges.get(b.id)!.start.toISOString(),
-                previousEndAt: options.oldRanges.get(b.id)!.end.toISOString(),
-              }
-            : {}),
+          previousStartAt:
+            (rangeChanged && options.oldRanges?.get(b.id)?.start.toISOString()) || null,
+          previousEndAt:
+            (rangeChanged && options.oldRanges?.get(b.id)?.end.toISOString()) || null,
           actor: actorUserId ? { userId: actorUserId } : { system: true },
+          cancelReason:
+            options.event === BookingEventType.CANCELLED ? (options.cancelReason ?? null) : null,
           occurredAt: new Date().toISOString(),
-        },
+          external: this.externalIds(b, memberIds),
+      };
+      await this.outbox.add(manager, {
+        aggregateType: 'booking',
+        aggregateId: b.id,
+        eventType: options.routingKey,
+        payload,
       });
     }
+  }
+
+  /** Linked partner member ids (userId -> memberId) for bookings at partner-managed places. */
+  private async partnerMemberIds(
+    manager: EntityManager,
+    bookings: Booking[],
+  ): Promise<Map<string, string>> {
+    const bySystem = new Map<string, string[]>();
+    for (const b of bookings) {
+      const system = b.seat?.place?.externalSystem;
+      if (system) bySystem.set(system, [...(bySystem.get(system) ?? []), b.userId]);
+    }
+    const result = new Map<string, string>();
+    for (const [system, userIds] of bySystem)
+      for (const [userId, memberId] of await this.identities.memberIdsForUsers(manager, system, userIds))
+        result.set(`${system}|${userId}`, memberId);
+    return result;
+  }
+
+  /** Partner ids (LMS) for a booking at a partner-managed place, else null. Needs seat + place loaded. */
+  private externalIds(b: Booking, memberIds: Map<string, string>): BookingExternalV1 | null {
+    const place = b.seat?.place;
+    if (place?.externalSystem !== 'library' || !place.externalId) return null;
+    return {
+      system: place.externalSystem,
+      placeId: place.externalId,
+      seatId: b.seat.externalId ?? null,
+      // Set only when the user linked their LMS account (explicit link flow).
+      memberId: memberIds.get(`${place.externalSystem}|${b.userId}`) ?? null,
+    };
   }
 
   alertPayload(

@@ -40,8 +40,10 @@ export interface InboxMessage {
 }
 export interface InboxPort {
   /**
-   * Inserts (source, messageId) into inbox_events first; runs `handler` only if
-   * the row is new. Returns false for a duplicate (already handled).
+   * Inserts (source, messageId) into inbox_events and runs `handler` only if
+   * the row is new, in one transaction: if the handler throws, the row is
+   * rolled back too, so a retry is processed again. Returns false for a
+   * duplicate (already handled). Bound to messaging's InboxService.
    */
   handleOnce(
     message: InboxMessage,

@@ -54,6 +54,8 @@ export function setupSwagger(app: INestApplication): void {
       .setDescription('Online Space Booking System API')
       .setVersion('1.0')
       .addBearerAuth()
+      // Integrating systems (api_clients): X-API-Key, see @ClientSecured.
+      .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'api-key')
       .build(),
   );
 

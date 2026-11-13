@@ -43,6 +43,10 @@ import { BookingRulesService } from './booking-rules.service';
 // Same message for unknown, used, revoked and expired codes: don't help guessing.
 const INVALID_QR = 'This QR code is invalid, already used or expired';
 
+// SUPER_ADMIN passes ADMIN routes (RolesInterceptor), so it is staff here too.
+const isStaff = (actor: AuthUser): boolean =>
+  actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+
 /**
  * Check-in / check-out by one-time QR or manually by an admin. The QR token is
  * marked used in the same transaction as the status change (AGENTS.md 6.3).
@@ -99,9 +103,9 @@ export class AttendanceService {
       );
       if (matched.length === 0) throw new BadRequestException(INVALID_QR);
 
-      // Users scan their own bookings; staff (ADMIN) can scan anyone's.
+      // Users scan their own bookings; staff (ADMIN, SUPER_ADMIN) can scan anyone's.
       if (
-        actor.role !== UserRole.ADMIN &&
+        !isStaff(actor) &&
         matched.some((b) => b.userId !== actor.id)
       ) {
         // Someone scanning another user's QR: worth seeing in the logs.
@@ -227,7 +231,7 @@ export class AttendanceService {
     const booking = await this.bookings.findById(bookingId);
     if (
       !booking ||
-      (actor.role !== UserRole.ADMIN && booking.userId !== actor.id)
+      (!isStaff(actor) && booking.userId !== actor.id)
     ) {
       throw new NotFoundException('Booking not found');
     }

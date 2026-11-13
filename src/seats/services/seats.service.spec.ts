@@ -53,15 +53,31 @@ const repoWithSeat = (seat: Seat | null) => {
     andWhere: () => qb,
     getOne: async () => seat,
   };
-  return {
+  const repo = {
     createQueryBuilder: () => qb,
     create: (v: object) => ({ id: 's1', ...v }),
     save: jest.fn(async (v: Seat) => v),
     update: jest.fn(async () => ({ affected: 1 })),
-    softDelete: jest.fn(async () => undefined),
-    manager: { query: async () => [{}] },
+    softDelete: jest.fn(async (_criteria?: unknown) => undefined),
+    manager: {
+      query: async (..._args: unknown[]): Promise<unknown[]> => [{}],
+      // The transaction's manager writes through the same fakes.
+      transaction: async (fn: (m: unknown) => Promise<unknown>) =>
+        fn({
+          getRepository: () => repo,
+          query: (...args: unknown[]) => repo.manager.query(...args),
+          softDelete: (_target: unknown, criteria: unknown) =>
+            repo.softDelete(criteria),
+        }),
+    },
   };
+  return repo;
 };
+
+// PLACE_CHANGE_BOOKINGS stand-in: reports how many bookings it cancelled.
+const bookingChanges = (cancelled = 2) => ({
+  cancelAffected: jest.fn(async () => cancelled),
+});
 
 describe('SeatsService', () => {
   let log: jest.SpyInstance;
@@ -175,7 +191,7 @@ describe('SeatsService', () => {
         places(),
       ).setStatus('s1', SeatStatus.MAINTENANCE);
       expect(log).toHaveBeenCalledWith(
-        'Seat status changed: id=s1 ACTIVE -> MAINTENANCE',
+        'Seat status changed: id=s1 ACTIVE -> MAINTENANCE cancelledBookings=0',
       );
     });
 
@@ -304,8 +320,10 @@ describe('SeatsService', () => {
         repo as unknown as Repository<Seat>,
         places(),
       ).softDelete('s1');
-      expect(repo.softDelete).toHaveBeenCalledWith('s1');
-      expect(log).toHaveBeenCalledWith('Seat deleted: id=s1 place=p label=A1');
+      expect(repo.softDelete).toHaveBeenCalledWith({ id: 's1' });
+      expect(log).toHaveBeenCalledWith(
+        'Seat deleted: id=s1 place=p label=A1 cancelledBookings=0',
+      );
     });
 
     it('softDelete throws 409 and does not delete while the seat has a live booking', async () => {
@@ -317,6 +335,75 @@ describe('SeatsService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
       expect(repo.softDelete).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('cancelling bookings an admin change makes impossible', () => {
+    it('MAINTENANCE cancels the seat\'s PENDING bookings in the same transaction', async () => {
+      const repo = repoWithSeat(seatRow());
+      const port = bookingChanges();
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+        port,
+      ).setStatus('s1', SeatStatus.MAINTENANCE);
+      expect(port.cancelAffected).toHaveBeenCalledWith(
+        expect.anything(),
+        'p',
+        { seatId: 's1' },
+        'SEAT_UNAVAILABLE',
+      );
+      expect(log).toHaveBeenCalledWith(
+        'Seat status changed: id=s1 ACTIVE -> MAINTENANCE cancelledBookings=2',
+      );
+    });
+
+    it('back to ACTIVE cancels nothing', async () => {
+      const repo = repoWithSeat(seatRow({ status: SeatStatus.MAINTENANCE }));
+      const port = bookingChanges();
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+        port,
+      ).setStatus('s1', SeatStatus.ACTIVE);
+      expect(port.cancelAffected).not.toHaveBeenCalled();
+    });
+
+    it('delete cancels PENDING bookings and only checked-in ones block it', async () => {
+      const repo = repoWithSeat(seatRow());
+      const queries: unknown[][] = [];
+      repo.manager.query = async (...args: unknown[]) => {
+        queries.push(args);
+        return [];
+      };
+      const port = bookingChanges(1);
+      await new SeatsService(
+        repo as unknown as Repository<Seat>,
+        places(),
+        port,
+      ).softDelete('s1');
+      const liveCheck = queries.find(([sql]) => String(sql).includes('FROM bookings'));
+      expect(liveCheck?.[1]).toEqual(['s1', ['CHECKED_IN', 'CHECKOUT_OVERDUE']]);
+      expect(port.cancelAffected).toHaveBeenCalledWith(
+        expect.anything(),
+        'p',
+        { seatId: 's1' },
+        'SEAT_DELETED',
+      );
+      expect(repo.softDelete).toHaveBeenCalledWith({ id: 's1' });
+    });
+
+    it('delete is still refused while someone is checked in', async () => {
+      const repo = repoWithSeat(seatRow()); // every query returns a row
+      const port = bookingChanges();
+      await expect(
+        new SeatsService(
+          repo as unknown as Repository<Seat>,
+          places(),
+          port,
+        ).softDelete('s1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(port.cancelAffected).not.toHaveBeenCalled();
     });
   });
 

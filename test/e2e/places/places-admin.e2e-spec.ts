@@ -233,7 +233,14 @@ describe('places admin writes (real Postgres)', () => {
     });
 
     it('merges the booking policy', async () => {
-      await patch(P, { bookingPolicy: { checkinGraceMinutes: 3 } });
+      // booking_policies_late_alert_chk: the late alert (default 5, not in the
+      // API) can't come after the grace ends, so lower it for a grace of 3.
+      await ds.query(
+        `UPDATE booking_policies SET late_checkin_alert_minutes = 3 WHERE place_id = $1`,
+        [P],
+      );
+      const first = await patch(P, { bookingPolicy: { checkinGraceMinutes: 3 } });
+      expect(first.status).toBe(200);
       const res = await patch(P, { bookingPolicy: { maxExtensions: 0 } });
       expect(res.body.bookingPolicy).toMatchObject({
         checkinGraceMinutes: 3,

@@ -64,6 +64,44 @@ export class NotificationsRepository {
       .execute();
   }
 
+  /**
+   * Puts a once-per-booking alert back in the queue for each row, whatever its
+   * current status (a reminder already SENT for the old end must fire again
+   * for the new end), and inserts it where none exists yet (a booking that
+   * was too short for one). Rows share one `type`. Run it on the transaction
+   * that holds the booking rows locked, so no concurrent call can interleave.
+   */
+  async rearm(manager: EntityManager, rows: NewNotification[]): Promise<void> {
+    if (rows.length === 0) return;
+    const rearmed = new Set<string>();
+    for (const row of rows) {
+      // One UPDATE per booking: the payload (seat label, times) differs per row.
+      const result = await manager
+        .createQueryBuilder()
+        .update(Notification)
+        .set({
+          status: NotificationStatus.PENDING,
+          scheduledAt: row.scheduledAt,
+          sentAt: null,
+          attempts: 0,
+          lastError: null,
+          payload: () => 'payload || CAST(:patch AS jsonb)',
+        })
+        .where('booking_id = :bookingId AND type = :type AND channel = :channel', {
+          bookingId: row.bookingId,
+          type: row.type,
+          channel: row.channel,
+        })
+        .setParameter('patch', JSON.stringify(row.payload))
+        .execute();
+      if (result.affected) rearmed.add(row.bookingId!);
+    }
+    await this.insertIgnoringDuplicates(
+      manager,
+      rows.filter((r) => !rearmed.has(r.bookingId!)),
+    );
+  }
+
   async skipPending(
     manager: EntityManager,
     bookingIds: string[],
@@ -98,30 +136,59 @@ export class NotificationsRepository {
       .getMany();
   }
 
+  /**
+   * Reserves claimed rows for one dispatch run: scheduled_at = `until` keeps
+   * them out of claimDue until then. The value doubles as the lease token the
+   * result writes below are guarded by.
+   */
+  async lease(manager: EntityManager, ids: string[], until: Date): Promise<void> {
+    if (ids.length === 0) return;
+    await manager
+      .getRepository(Notification)
+      .update({ id: In(ids) }, { scheduledAt: until });
+  }
+
+  /**
+   * Result writes only touch rows still PENDING under this run's lease. A row
+   * that was re-armed, rescheduled or skipped while its message was being sent
+   * has a new scheduled_at or status, and keeps it.
+   */
+  private leased(ids: string[], leasedUntil?: Date) {
+    return {
+      id: In(ids),
+      ...(leasedUntil
+        ? { status: NotificationStatus.PENDING, scheduledAt: leasedUntil }
+        : {}),
+    };
+  }
+
   async markSent(
     manager: EntityManager,
     ids: string[],
     at: Date,
+    leasedUntil?: Date,
   ): Promise<void> {
     await manager
       .getRepository(Notification)
-      .update(
-        { id: In(ids) },
-        { status: NotificationStatus.SENT, sentAt: at, lastError: null },
-      );
+      .update(this.leased(ids, leasedUntil), {
+        status: NotificationStatus.SENT,
+        sentAt: at,
+        lastError: null,
+      });
   }
 
   async markSkipped(
     manager: EntityManager,
     ids: string[],
     reason: string,
+    leasedUntil?: Date,
   ): Promise<void> {
     await manager
       .getRepository(Notification)
-      .update(
-        { id: In(ids) },
-        { status: NotificationStatus.SKIPPED, lastError: reason },
-      );
+      .update(this.leased(ids, leasedUntil), {
+        status: NotificationStatus.SKIPPED,
+        lastError: reason,
+      });
   }
 
   /** `retryAt` null = give up (FAILED); otherwise stay PENDING until retryAt. */
@@ -130,6 +197,7 @@ export class NotificationsRepository {
     ids: string[],
     error: string,
     retryAt: Date | null,
+    leasedUntil?: Date,
   ): Promise<void> {
     await manager
       .getRepository(Notification)
@@ -142,7 +210,19 @@ export class NotificationsRepository {
           ? { scheduledAt: retryAt }
           : { status: NotificationStatus.FAILED }),
       })
-      .where({ id: In(ids) })
+      .where(this.leased(ids, leasedUntil))
       .execute();
+  }
+
+  /** Not attempted this run (the provider is rate limiting): due again at `at`, no attempt counted. */
+  async defer(
+    manager: EntityManager,
+    ids: string[],
+    at: Date,
+    leasedUntil?: Date,
+  ): Promise<void> {
+    await manager
+      .getRepository(Notification)
+      .update(this.leased(ids, leasedUntil), { scheduledAt: at });
   }
 }

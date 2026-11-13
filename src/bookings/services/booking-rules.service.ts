@@ -7,7 +7,12 @@ import { BookingStatus } from '../../common/enums';
 import type { TimeRange } from '../../database/transformers/tstzrange.transformer';
 import type { BookingPolicy } from '../../places/entities/booking-policy.entity';
 import { Booking } from '../entities/booking.entity';
-import { addMinutes, MINUTE_MS, minutesBetween } from '../domain/time';
+import {
+  addMinutes,
+  MINUTE_MS,
+  minutesBetween,
+  zoneOffsetMinutes,
+} from '../domain/time';
 
 export interface TimeWindow {
   opensAt: Date;
@@ -21,8 +26,13 @@ export interface TimeWindow {
  */
 @Injectable()
 export class BookingRulesService {
-  /** Rules for a new range (create, modify). */
-  validateNewRange(range: TimeRange, policy: BookingPolicy, now: Date): void {
+  /** Rules for a new range (create, modify). `timezone`: the place's IANA zone, for slot alignment. */
+  validateNewRange(
+    range: TimeRange,
+    policy: BookingPolicy,
+    now: Date,
+    timezone = 'UTC',
+  ): void {
     const { start, end } = range;
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       throw new BadRequestException('startAt and endAt must be valid dates');
@@ -33,13 +43,9 @@ export class BookingRulesService {
     if (start < now) {
       throw new BadRequestException("Bookings can't start in the past");
     }
-    this.assertAligned(range, policy);
+    this.assertAligned(range, policy, timezone);
     this.assertDuration(range, policy);
-    if (start > addMinutes(now, policy.maxAdvanceDays * 24 * 60)) {
-      throw new BadRequestException(
-        `Bookings can be made at most ${policy.maxAdvanceDays} days ahead`,
-      );
-    }
+    this.assertWithinAdvance(start, policy, now);
   }
 
   /** Modify: only PENDING, and not later than start - modify_cutoff_minutes. */
@@ -58,12 +64,17 @@ export class BookingRulesService {
     this.assertBeforeCutoff(booking, policy, now, 'cancelled');
   }
 
-  /** Extend: PENDING or CHECKED_IN, later end, within max_extensions and max_minutes. */
+  /**
+   * Extend: PENDING or CHECKED_IN, later end, within max_extensions and
+   * max_minutes, and (like create) starting within max_advance_days of now,
+   * which only bites after the policy's window was shortened.
+   */
   validateExtend(
     booking: Booking,
     newEnd: Date,
     policy: BookingPolicy,
     now: Date,
+    timezone = 'UTC',
   ): TimeRange {
     if (
       booking.status !== BookingStatus.PENDING &&
@@ -83,8 +94,9 @@ export class BookingRulesService {
       );
     }
     const range = { start: booking.timeRange.start, end: newEnd };
-    this.assertAligned(range, policy);
+    this.assertAligned(range, policy, timezone);
     this.assertDuration(range, policy);
+    this.assertWithinAdvance(range.start, policy, now);
     return range;
   }
 
@@ -110,11 +122,32 @@ export class BookingRulesService {
     }
   }
 
-  // Aligned on the UTC epoch, which matches local alignment for every zone
-  // whose offset is a multiple of slot_minutes (all whole-hour zones).
-  private assertAligned(range: TimeRange, policy: BookingPolicy): void {
+  private assertWithinAdvance(start: Date, policy: BookingPolicy, now: Date): void {
+    if (start > addMinutes(now, policy.maxAdvanceDays * 24 * 60)) {
+      throw new BadRequestException(
+        `Bookings can be made at most ${policy.maxAdvanceDays} days ahead`,
+      );
+    }
+  }
+
+  // Aligned on the place's local wall clock, so half-hour zones (Asia/Kolkata)
+  // with 60-minute slots accept 10:00-11:00 local. Each bound uses its own
+  // offset, so a range across a DST change stays aligned on both sides.
+  private aligned(at: Date, slotMs: number, timezone: string): boolean {
+    const local = at.getTime() + zoneOffsetMinutes(at, timezone) * MINUTE_MS;
+    return ((local % slotMs) + slotMs) % slotMs === 0;
+  }
+
+  private assertAligned(
+    range: TimeRange,
+    policy: BookingPolicy,
+    timezone: string,
+  ): void {
     const slotMs = policy.slotMinutes * MINUTE_MS;
-    if (range.start.getTime() % slotMs !== 0 || range.end.getTime() % slotMs !== 0) {
+    if (
+      !this.aligned(range.start, slotMs, timezone) ||
+      !this.aligned(range.end, slotMs, timezone)
+    ) {
       throw new BadRequestException(
         `Start and end must be on ${policy.slotMinutes}-minute boundaries`,
       );

@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { DataSource, DeepPartial, EntityManager, In, SelectQueryBuilder } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm';
-import { BookingStatus } from '../../common/enums';
+import { BookingStatus, SeatStatus } from '../../common/enums';
 import {
   isPgError,
   PG_EXCLUSION_VIOLATION,
@@ -14,6 +14,7 @@ import {
 } from '../domain/booking-state';
 import { BookingEvent } from '../entities/booking-event.entity';
 import { Booking } from '../entities/booking.entity';
+import { Seat } from '../../seats/entities/seat.entity';
 
 export type BookingListView = 'all' | 'upcoming' | 'history';
 
@@ -112,10 +113,49 @@ export class BookingsRepository {
     await manager.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [userId]);
   }
 
-  countActiveForUser(manager: EntityManager, userId: string): Promise<number> {
-    return manager.getRepository(Booking).count({
-      where: { userId, status: In([...ACTIVE_STATUSES]) },
-    });
+  /** The user's active bookings at one place (max_active_per_user is a per-place policy). */
+  countActiveForUser(
+    manager: EntityManager,
+    userId: string,
+    placeId: string,
+  ): Promise<number> {
+    return (
+      manager
+        .getRepository(Booking)
+        .createQueryBuilder('b')
+        // A soft-deleted seat's live bookings still count.
+        .withDeleted()
+        .innerJoin('b.seat', 's')
+        .where('b.userId = :userId', { userId })
+        .andWhere('s.placeId = :placeId', { placeId })
+        .andWhere('b.status IN (:...active)', { active: [...ACTIVE_STATUSES] })
+        .getCount()
+    );
+  }
+
+  /**
+   * True when a no-show must not be counted for this group: another of its
+   * bookings already expired in an earlier run (counted then), or one was
+   * attended. `batchIds` (this run's expiring rows) are left out. The
+   * transaction-scoped advisory lock makes a concurrent job run on another
+   * instance wait, so it sees this run's EXPIRED rows once committed.
+   */
+  async noShowAlreadySettled(
+    manager: EntityManager,
+    groupId: string,
+    batchIds: string[],
+  ): Promise<boolean> {
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext('no-show:' || $1))`, [groupId]);
+    const [row]: { settled: boolean }[] = await manager.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM bookings
+          WHERE group_id = $1
+            AND NOT (id = ANY($2::uuid[]))
+            AND status IN ('EXPIRED', 'CHECKED_IN', 'CHECKOUT_OVERDUE', 'COMPLETED')
+       ) AS settled`,
+      [groupId, batchIds],
+    );
+    return row.settled;
   }
 
   /**
@@ -247,6 +287,128 @@ export class BookingsRepository {
         LIMIT $2
         FOR UPDATE OF b SKIP LOCKED`,
       [now, limit],
+    );
+    return this.findByIds(rows.map((r) => r.id), manager);
+  }
+
+  /**
+   * PENDING bookings at a place that start after `now`, locked (FOR UPDATE OF b).
+   * The partner place sync checks them against the new layout and hours.
+   */
+  async lockFuturePendingAtPlace(
+    manager: EntityManager,
+    placeId: string,
+    now: Date,
+  ): Promise<Booking[]> {
+    const rows: { id: string }[] = await manager.query(
+      `SELECT b.id
+         FROM bookings b
+         JOIN seats s ON s.id = b.seat_id
+        WHERE s.place_id = $1
+          AND b.status = 'PENDING'
+          AND lower(b.time_range) > $2
+        ORDER BY lower(b.time_range)
+        FOR UPDATE OF b`,
+      [placeId, now],
+    );
+    return this.findByIds(rows.map((r) => r.id), manager);
+  }
+
+  /**
+   * Seats of a place free for the whole range (docs/erd.md section 7): ACTIVE,
+   * not deleted, and no PENDING / CHECKED_IN / CHECKOUT_OVERDUE booking
+   * overlapping it (the statuses of no_double_booking). If the range includes
+   * `now`, a seat with any CHECKOUT_OVERDUE booking is occupied too: its user
+   * may still be sitting there. The caller checks the place itself
+   * (active, partner-open, opening hours).
+   */
+  async findAvailableSeats(
+    placeId: string,
+    range: TimeRange,
+    now: Date,
+    opts: { areaId?: string; page: number; limit: number },
+  ): Promise<Page<Seat>> {
+    const includesNow = range.start <= now && now < range.end;
+    const qb = this.dataSource.manager
+      .getRepository(Seat)
+      .createQueryBuilder('seat')
+      .where('seat.placeId = :placeId', { placeId })
+      .andWhere('seat.status = :active', { active: SeatStatus.ACTIVE })
+      .andWhere(
+        `NOT EXISTS (
+           SELECT 1 FROM bookings b
+            WHERE b.seat_id = seat.id
+              AND b.status IN (:...holding)
+              AND (b.time_range && tstzrange(:start, :end, '[)')
+                   ${includesNow ? "OR b.status = 'CHECKOUT_OVERDUE'" : ''}))`,
+        {
+          holding: SEAT_HOLDING_STATUSES,
+          start: range.start.toISOString(),
+          end: range.end.toISOString(),
+        },
+      );
+    if (opts.areaId) qb.andWhere('seat.areaId = :areaId', { areaId: opts.areaId });
+    const [items, total] = await qb
+      .orderBy('seat.label')
+      .addOrderBy('seat.id')
+      .skip((opts.page - 1) * opts.limit)
+      .take(opts.limit)
+      .getManyAndCount();
+    return { items, total };
+  }
+
+  /** Ranges of a seat's PENDING / CHECKED_IN / CHECKOUT_OVERDUE bookings overlapping `range`. */
+  async busyRanges(seatId: string, range: TimeRange): Promise<TimeRange[]> {
+    const rows = await this.dataSource.manager
+      .getRepository(Booking)
+      .createQueryBuilder('b')
+      .select(['b.id', 'b.timeRange'])
+      .where('b.seatId = :seatId', { seatId })
+      .andWhere('b.status IN (:...holding)', { holding: SEAT_HOLDING_STATUSES })
+      .andWhere(`b.time_range && tstzrange(:start, :end, '[)')`, {
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+      })
+      .orderBy('lower(b.time_range)', 'ASC')
+      .getMany();
+    return rows.map((b) => b.timeRange);
+  }
+
+  /** Occupied now (docs/erd.md section 7): CHECKED_IN containing now, or any CHECKOUT_OVERDUE. */
+  async isOccupiedNow(seatId: string, now: Date): Promise<boolean> {
+    const [row]: { occupied: boolean }[] = await this.dataSource.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM bookings
+          WHERE seat_id = $1
+            AND (status = 'CHECKOUT_OVERDUE'
+                 OR (status = 'CHECKED_IN' AND time_range @> $2::timestamptz))
+       ) AS occupied`,
+      [seatId, now],
+    );
+    return row.occupied;
+  }
+
+  /**
+   * Every PENDING booking at a place (or on one seat of it), locked. Unlike
+   * lockFuturePendingAtPlace this includes bookings already inside their
+   * check-in grace window: after an admin closes the seat they would
+   * otherwise expire as no-shows the user didn't cause.
+   */
+  async lockPendingAtPlace(
+    manager: EntityManager,
+    placeId: string,
+    seatId?: string,
+  ): Promise<Booking[]> {
+    const rows: { id: string }[] = await manager.query(
+      `SELECT b.id
+         FROM bookings b
+         JOIN seats s ON s.id = b.seat_id
+        WHERE s.place_id = $1
+          AND ($2::uuid IS NULL OR b.seat_id = $2::uuid)
+          AND b.status = 'PENDING'
+        ORDER BY lower(b.time_range)
+        FOR UPDATE OF b`,
+      [placeId, seatId ?? null],
     );
     return this.findByIds(rows.map((r) => r.id), manager);
   }
