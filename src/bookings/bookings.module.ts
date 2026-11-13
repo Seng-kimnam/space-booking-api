@@ -26,6 +26,7 @@ import { BookingRulesService } from './services/booking-rules.service';
 import { BookingsService } from './services/bookings.service';
 import { PlaceChangeBookingsService } from './services/place-change-bookings.service';
 import { SeatAvailabilityService } from './services/seat-availability.service';
+import { UserBookingsService } from './services/user-bookings.service';
 
 /**
  * SEAT_LOOKUP is the real SeatsService and PLACE_RULES the real PlaceRulesService.
@@ -57,6 +58,7 @@ import { SeatAvailabilityService } from './services/seat-availability.service';
     BookingCancellationService,
     PlaceChangeBookingsService,
     SeatAvailabilityService,
+    UserBookingsService,
     AttendanceService,
     BookingsService,
     BookingLifecycleService,
@@ -68,6 +70,8 @@ import { SeatAvailabilityService } from './services/seat-availability.service';
     // Bound to the places/seats ports by BookingsBindingsModule.
     PlaceChangeBookingsService,
     SeatAvailabilityService,
+    // Bound to the users USER_BOOKINGS port by BookingsBindingsModule.
+    UserBookingsService,
   ],
 })
 export class BookingsModule {}

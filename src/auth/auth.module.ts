@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AUTH_THROTTLERS } from './auth-throttle';
 import { AuthService } from './auth.service';
 import { AuthCleanupService } from './auth-cleanup.service';
+import { SessionsService } from './sessions.service';
 import { AuthGuard } from './auth.guard';
 import { MailService } from './mail.service';
 import { jwtModuleOptions } from './jwt-options';
@@ -40,8 +41,8 @@ dotenv.config();
     ThrottlerModule.forRoot({ throttlers: AUTH_THROTTLERS }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AuthCleanupService],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AuthCleanupService, SessionsService],
   // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
-  exports: [AuthService, AuthCleanupService, AuthGuard, JwtModule],
+  exports: [AuthService, AuthCleanupService, SessionsService, AuthGuard, JwtModule],
 })
 export class AuthModule {}

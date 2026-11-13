@@ -45,6 +45,10 @@ export class User {
   @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
   avatarUrl: string | null;
 
+  // New address waiting for its EMAIL_CHANGE code (users.me email change).
+  @Column({ name: 'pending_email', type: 'citext', nullable: true })
+  pendingEmail: string | null;
+
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt: Date | null;
 
@@ -64,6 +68,11 @@ export class User {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+
+  // Soft delete (account closed). A plain column, not @DeleteDateColumn: rows
+  // with history stay readable by joins and admin lookups; auth refuses them.
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 
   @ManyToOne(() => Role, { eager: true, nullable: false })
   @JoinColumn({ name: 'role_id' })

@@ -10,6 +10,7 @@ import { Notification } from './entities/notification.entity';
 import { NotificationsRepository } from './repositories/notifications.repository';
 import { NotificationDispatcher } from './services/notification-dispatcher.service';
 import { NotificationsService } from './services/notifications.service';
+import { UserNotificationsService } from './services/user-notifications.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Notification]), TelegramModule],
@@ -17,6 +18,7 @@ import { NotificationsService } from './services/notifications.service';
     NotificationsRepository,
     NotificationsService,
     NotificationDispatcher,
+    UserNotificationsService,
     TelegramChannel,
     // Register every channel strategy here (e.g. add EmailChannel to `inject`).
     {
@@ -27,6 +29,6 @@ import { NotificationsService } from './services/notifications.service';
       inject: [TelegramChannel],
     },
   ],
-  exports: [NotificationsService, NotificationDispatcher],
+  exports: [NotificationsService, NotificationDispatcher, UserNotificationsService],
 })
 export class NotificationsModule {}

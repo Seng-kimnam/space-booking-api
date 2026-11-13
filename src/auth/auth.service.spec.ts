@@ -1,5 +1,6 @@
 import * as bcrypt from 'bcrypt';
 import {
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   UnauthorizedException,
@@ -8,6 +9,7 @@ import { IsNull, QueryFailedError } from 'typeorm';
 import {
   ADMIN_REGISTER_MESSAGE,
   AuthService,
+  EMAIL_CHANGE_MESSAGE,
   FORGOT_MESSAGE,
   INVALID_CREDENTIALS,
   INVALID_OTP,
@@ -115,6 +117,7 @@ function build(opts: { otpQueue?: unknown[][]; tokenQueue?: unknown[][] } = {}) 
   const mail = {
     sendOtp: jest.fn().mockResolvedValue(undefined),
     sendPasswordChanged: jest.fn().mockResolvedValue(undefined),
+    sendEmailChanged: jest.fn().mockResolvedValue(undefined),
   };
   const repoFor = new Map<unknown, unknown>([
     [User, users],
@@ -155,11 +158,14 @@ describe('AuthService', () => {
         'user',
       ]);
       // No email in the JWT payload.
+      // The session id (`sid`) is the stored refresh token's id.
+      const saved = refreshTokens.save.mock.calls[0][0];
       expect(jwt.signAsync).toHaveBeenCalledWith({
         sub: 'user-id',
         role: UserRole.USER,
+        sid: saved.id,
       });
-      const saved = refreshTokens.save.mock.calls[0][0];
+      expect(saved.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(saved.ip).toBe('10.0.0.1');
       expect(saved.userAgent).toHaveLength(255);
     });
@@ -651,6 +657,95 @@ describe('AuthService', () => {
         service.changePassword('user-id', 'WrongPassword1!', 'NewPassword123!'),
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('closed accounts', () => {
+    const closed = () => makeUser({ deletedAt: new Date() });
+
+    it('login answers exactly like an unknown email', async () => {
+      const { service, users } = build();
+      users.findOneBy.mockResolvedValue(closed());
+      await expect(service.login('user@example.com', password)).rejects.toThrow(INVALID_CREDENTIALS);
+    });
+
+    it('forgot-password sends nothing', async () => {
+      const { service, users, mail } = build();
+      users.findOneBy.mockResolvedValue(closed());
+      await service.forgotPassword('user@example.com');
+      expect(mail.sendOtp).not.toHaveBeenCalled();
+    });
+
+    it('/auth/me is 401', async () => {
+      const { service, users } = build();
+      users.findOneBy.mockResolvedValue(closed());
+      await expect(service.getProfile('user-id')).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('email change', () => {
+    const code = '654321';
+    let liveOtp: { id: string; codeHash: string };
+    beforeAll(async () => {
+      liveOtp = { id: 'otp-id', codeHash: await bcrypt.hash(code, 4) };
+    });
+
+    it('needs the current password', async () => {
+      const { service, users } = build();
+      users.findOneBy.mockResolvedValue(makeUser());
+      await expect(
+        service.requestEmailChange('user-id', 'new@example.com', 'WrongPassword1!'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('stores the pending address and mails the code to it, not to the old one', async () => {
+      const { service, users, mail } = build();
+      users.findOneBy.mockImplementation(async (w: { id?: string }) => (w.id ? makeUser() : null));
+
+      await expect(
+        service.requestEmailChange('user-id', 'new@example.com', password),
+      ).resolves.toEqual({ message: EMAIL_CHANGE_MESSAGE });
+      expect(users.update).toHaveBeenCalledWith('user-id', { pendingEmail: 'new@example.com' });
+      await new Promise((r) => setImmediate(r));
+      expect(mail.sendOtp).toHaveBeenCalledWith('new@example.com', 'EMAIL_CHANGE', expect.any(String));
+    });
+
+    it('a taken address gets the same answer, and nothing is stored or mailed', async () => {
+      const { service, users, mail } = build();
+      users.findOneBy.mockImplementation(async (w: { id?: string }) =>
+        w.id ? makeUser() : makeUser({ id: 'other' }),
+      );
+
+      await expect(
+        service.requestEmailChange('user-id', 'taken@example.com', password),
+      ).resolves.toEqual({ message: EMAIL_CHANGE_MESSAGE });
+      expect(users.update).not.toHaveBeenCalled();
+      expect(mail.sendOtp).not.toHaveBeenCalled();
+    });
+
+    it('confirm swaps the email and notifies the old address', async () => {
+      const { service, users, otps, mail } = build();
+      users.findOneBy.mockResolvedValue(makeUser({ pendingEmail: 'new@example.com' }));
+      otps.findOne.mockResolvedValue(liveOtp);
+
+      await service.confirmEmailChange('user-id', code);
+      expect(users.update).toHaveBeenCalledWith('user-id', {
+        email: 'new@example.com',
+        pendingEmail: null,
+        emailVerifiedAt: expect.any(Date),
+      });
+      expect(mail.sendEmailChanged).toHaveBeenCalledWith('user@example.com');
+    });
+
+    it('confirm is 409 when the address was taken meanwhile', async () => {
+      const { service, users, otps } = build();
+      users.findOneBy.mockResolvedValue(makeUser({ pendingEmail: 'new@example.com' }));
+      otps.findOne.mockResolvedValue(liveOtp);
+      users.update.mockRejectedValueOnce(dbError('23505', 'users_email_uk'));
+
+      await expect(service.confirmEmailChange('user-id', code)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
     });
   });
 });

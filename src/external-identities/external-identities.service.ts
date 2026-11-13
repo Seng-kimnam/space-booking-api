@@ -30,6 +30,13 @@ export interface Eligibility {
 export class ExternalIdentitiesService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
+  /** Every partner link of a user (users module: linked accounts). */
+  findForUser(userId: string): Promise<ExternalIdentity[]> {
+    return this.dataSource
+      .getRepository(ExternalIdentity)
+      .find({ where: { userId }, order: { linkedAt: 'ASC' } });
+  }
+
   /** New single-use code for a partner member; older live codes for that member stop working. */
   async issueLinkCode(
     manager: EntityManager,

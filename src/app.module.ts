@@ -9,6 +9,7 @@ import {
   validateEnv,
 } from './configuration';
 import { UsersModule } from './users/users.module';
+import { UsersBindingsModule } from './users/bindings/users-bindings.module';
 import { RolesModule } from './roles/roles.module';
 import { PlacesModule } from './places/places.module';
 import { AreasModule } from './areas/areas.module';
@@ -50,6 +51,8 @@ import { TelegramModule } from './telegram/telegram.module';
     BookingsModule,
     // Ports places/seats declare and bookings implements (global).
     BookingsBindingsModule,
+    // Ports users declares and notifications/telegram/LMS links implement (global).
+    UsersBindingsModule,
     JobsModule,
     // Integrating systems calling us with an API key (/admin/api-clients, ApiKeyGuard).
     ApiClientsModule,

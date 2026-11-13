@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource, DeepPartial, EntityManager, In, SelectQueryBuilder } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm';
 import { BookingStatus, SeatStatus } from '../../common/enums';
@@ -31,6 +31,30 @@ export interface AdminBookingFilters {
 export interface Page<T> {
   items: T[];
   total: number;
+}
+
+export interface UserBookingCounts {
+  total: number;
+  upcoming: number;
+  active: number;
+  completed: number;
+  cancelled: number;
+  expired: number;
+  hoursBooked: number;
+  favouritePlace: { id: string; name: string; bookings: number } | null;
+}
+
+export interface UserBookingEventRow {
+  id: string;
+  bookingId: string;
+  type: string;
+  createdAt: Date;
+  actorUserId: string | null;
+  byClient: boolean;
+  bySystem: boolean;
+  bookingUserId: string;
+  placeName: string;
+  seatLabel: string;
 }
 
 /** The exclusion constraint is the only double-booking check (AGENTS.md section 6.1). */
@@ -109,8 +133,100 @@ export class BookingsRepository {
    * Serializes one user's concurrent creates so the max_active_per_user count
    * can't be raced. Locks only the user's row; other users are unaffected.
    */
+  /**
+   * Locks the user row, serialising booking creation with account deletion
+   * (which takes the same lock), and refuses a deleted account whose access
+   * token hasn't expired yet.
+   */
   async lockUser(manager: EntityManager, userId: string): Promise<void> {
-    await manager.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    const rows: { deleted: boolean }[] | undefined = await manager.query(
+      'SELECT deleted_at IS NOT NULL AS deleted FROM users WHERE id = $1 FOR UPDATE',
+      [userId],
+    );
+    if (rows?.[0]?.deleted) throw new ForbiddenException('Account is closed');
+  }
+
+  /** The user's PENDING bookings, locked (account closure cancels them). */
+  async lockPendingForUser(manager: EntityManager, userId: string): Promise<Booking[]> {
+    const rows: { id: string }[] = await manager.query(
+      `SELECT id FROM bookings
+        WHERE user_id = $1 AND status = 'PENDING'
+        ORDER BY lower(time_range)
+        FOR UPDATE`,
+      [userId],
+    );
+    return this.findByIds(rows.map((r) => r.id), manager);
+  }
+
+  /** True while the user occupies a seat (CHECKED_IN or CHECKOUT_OVERDUE). */
+  async hasSeatInUse(manager: EntityManager, userId: string): Promise<boolean> {
+    const rows: unknown[] = await manager.query(
+      `SELECT 1 FROM bookings
+        WHERE user_id = $1 AND status IN ('CHECKED_IN', 'CHECKOUT_OVERDUE')
+        LIMIT 1`,
+      [userId],
+    );
+    return rows.length > 0;
+  }
+
+  /** Per-seat booking counts and completed hours for one user. */
+  async summaryForUser(userId: string, now: Date): Promise<UserBookingCounts> {
+    const [row] = await this.dataSource.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE status = 'PENDING' AND lower(time_range) > $2)::int AS upcoming,
+              count(*) FILTER (WHERE status IN ('CHECKED_IN', 'CHECKOUT_OVERDUE'))::int AS active,
+              count(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
+              count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
+              count(*) FILTER (WHERE status = 'EXPIRED')::int AS expired,
+              coalesce(sum(extract(epoch FROM upper(time_range) - lower(time_range)))
+                FILTER (WHERE status = 'COMPLETED'), 0)::float / 3600 AS "hoursBooked"
+         FROM bookings WHERE user_id = $1`,
+      [userId, now],
+    );
+    const [fav] = await this.dataSource.query(
+      `SELECT p.id, p.name, count(*)::int AS bookings
+         FROM bookings b
+         JOIN seats s ON s.id = b.seat_id
+         JOIN places p ON p.id = s.place_id
+        WHERE b.user_id = $1 AND b.status NOT IN ('CANCELLED', 'EXPIRED')
+        GROUP BY p.id, p.name
+        ORDER BY count(*) DESC, p.name ASC
+        LIMIT 1`,
+      [userId],
+    );
+    return { ...row, favouritePlace: fav ?? null };
+  }
+
+  /**
+   * Booking events about the user's bookings or done by the user (e.g. an
+   * admin's check-ins), newest first.
+   */
+  async eventsForUser(
+    userId: string,
+    page: number,
+    limit: number,
+  ): Promise<Page<UserBookingEventRow>> {
+    const where = 'WHERE b.user_id = $1 OR e.actor_user_id = $1';
+    const items: UserBookingEventRow[] = await this.dataSource.query(
+      `SELECT e.id, e.booking_id AS "bookingId", e.type, e.created_at AS "createdAt",
+              e.actor_user_id AS "actorUserId", e.actor_client_id IS NOT NULL AS "byClient",
+              e.actor_system AS "bySystem", b.user_id AS "bookingUserId",
+              p.name AS "placeName", s.label AS "seatLabel"
+         FROM booking_events e
+         JOIN bookings b ON b.id = e.booking_id
+         JOIN seats s ON s.id = b.seat_id
+         JOIN places p ON p.id = s.place_id
+        ${where}
+        ORDER BY e.created_at DESC, e.id ASC
+        LIMIT $2 OFFSET $3`,
+      [userId, limit, (page - 1) * limit],
+    );
+    const [{ total }] = await this.dataSource.query(
+      `SELECT count(*)::int AS total FROM booking_events e
+         JOIN bookings b ON b.id = e.booking_id ${where}`,
+      [userId],
+    );
+    return { items, total };
   }
 
   /** The user's active bookings at one place (max_active_per_user is a per-place policy). */
