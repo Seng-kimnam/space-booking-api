@@ -1,56 +1,41 @@
+import { Body, Controller, Patch } from '@nestjs/common';
 import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-  UseInterceptors,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AuthGuard } from '../auth/auth.guard';
-import { Roles } from '../auth/role.decorator';
-import { RolesInterceptor } from '../auth/roles.interceptor';
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import { CurrentAuthUser } from '../common/decorators/current-auth-user.decorator';
+import { Secured } from '../common/decorators/secured.decorator';
 import { UserRole } from '../common/enums';
+import type { AuthUser } from '../common/types/auth-user';
+import { MyProfileResponseDto, UpdateMyProfileDto } from './dto/user.dto';
 import { UsersService } from './users.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
 
-// Unimplemented scaffold (AGENTS.md section 12). Guarded so it isn't an open
-// endpoint until real user management is built.
+/**
+ * The caller's own account (docs/api-endpoints.md section 1). Reading the
+ * profile is GET /auth/me. SUPER_ADMIN passes ADMIN routes (RolesInterceptor).
+ */
 @ApiTags('Users')
 @ApiBearerAuth()
-@UseGuards(AuthGuard)
-@UseInterceptors(RolesInterceptor)
-@Roles(UserRole.ADMIN)
+@ApiUnauthorizedResponse()
+@ApiForbiddenResponse()
+@Secured(UserRole.USER, UserRole.ADMIN)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly users: UsersService) {}
 
-  @Post()
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
-  }
-
-  @Get()
-  findAll() {
-    return this.usersService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(+id, updateUserDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(+id);
+  @Patch('me')
+  @ApiOperation({ summary: 'Update my profile (name, avatar)' })
+  @ApiOkResponse({ type: MyProfileResponseDto })
+  @ApiBadRequestResponse()
+  updateMe(
+    @CurrentAuthUser() user: AuthUser,
+    @Body() dto: UpdateMyProfileDto,
+  ): Promise<MyProfileResponseDto> {
+    return this.users.updateMyProfile(user.id, dto);
   }
 }

@@ -15,7 +15,6 @@ import { AreasModule } from './areas/areas.module';
 import { SeatsModule } from './seats/seats.module';
 import { AppController } from './app.controller';
 import { BookingsModule } from './bookings/bookings.module';
-import { InterimPortsModule } from './bookings/interim-ports.module';
 import { BookingsBindingsModule } from './bookings/bookings-bindings.module';
 import { JobsModule } from './jobs/jobs.module';
 import { MessagingModule } from './messaging/messaging.module';
@@ -46,8 +45,6 @@ import { TelegramModule } from './telegram/telegram.module';
     SeatsModule,
     // OUTBOX port + RabbitMQ publisher (outbox relay runs in JobsModule).
     MessagingModule,
-    // INTERIM: OTP/no-show providers until those modules merge.
-    InterimPortsModule,
     TelegramModule,
     NotificationsModule,
     BookingsModule,

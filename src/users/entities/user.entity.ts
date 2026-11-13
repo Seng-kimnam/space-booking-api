@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Role } from '../../roles/entities/role.entity';
 
@@ -40,6 +41,10 @@ export class User {
   @Exclude()
   passwordHash: string | null;
 
+  // Column exists since the initial schema; mapped for PATCH /users/me.
+  @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
+  avatarUrl: string | null;
+
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt: Date | null;
 
@@ -56,6 +61,9 @@ export class User {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
 
   @ManyToOne(() => Role, { eager: true, nullable: false })
   @JoinColumn({ name: 'role_id' })
@@ -77,7 +85,6 @@ export class User {
 
   @Column({ name: 'admin_approved_by', type: 'uuid', nullable: true })
   adminApprovedById: string | null;
-
 
   @Column({
     name: 'google_id',

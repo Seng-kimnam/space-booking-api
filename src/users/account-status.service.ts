@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { User, UserRole } from '../users/entities/user.entity';
-import { AuthService } from './auth.service';
+import { AuthService } from '../auth/auth.service';
+import { User, UserRole } from './entities/user.entity';
 
 /**
  * Suspends and reactivates accounts (docs/auth.md M3). A suspended account

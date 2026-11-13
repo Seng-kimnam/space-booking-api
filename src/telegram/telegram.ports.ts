@@ -1,12 +1,10 @@
 import { OtpPurpose } from '../common/enums';
 
 /**
- * Dependencies the telegram module needs from modules owned by teammates.
- * They are injected by token so this module compiles and is unit-testable before
- * those modules exist. Wiring, once they merge (telegram.module.ts):
- *   imports:   [UsersModule, MessagingModule]
- *   providers: { provide: TELEGRAM_LINK_CODES, useExisting: OtpService },
- *              { provide: INBOX, useExisting: InboxService }
+ * Dependencies the telegram module needs from other modules, injected by token
+ * so services are unit-testable with fakes. Bindings:
+ *   TELEGRAM_LINK_CODES -> OtpService   (telegram.module.ts, from UsersModule)
+ *   INBOX               -> InboxService (global MessagingModule)
  */
 
 /** users module, OtpService (user_otps, purpose TELEGRAM_LINK). */

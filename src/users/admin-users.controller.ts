@@ -1,43 +1,55 @@
-import {
-  Controller,
-  HttpCode,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  UseGuards,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthGuard } from './auth.guard';
-import { Roles } from './role.decorator';
-import { RolesInterceptor } from './roles.interceptor';
-import { AccountStatusService } from './account-status.service';
 import { CurrentAuthUser } from '../common/decorators/current-auth-user.decorator';
+import { Secured } from '../common/decorators/secured.decorator';
 import { UserRole } from '../common/enums';
 import type { AuthUser } from '../common/types/auth-user';
+import { AccountStatusService } from './account-status.service';
+import { ListUsersQueryDto, UserPageResponseDto, UserResponseDto } from './dto/user.dto';
+import { UsersService } from './users.service';
 
-// docs/api-endpoints.md 8e/8f. RolesInterceptor lets SUPER_ADMIN through ADMIN
-// routes; which targets each role may act on is decided in AccountStatusService.
-@ApiTags('Admin users')
+/**
+ * Account management for admins (docs/api-endpoints.md 8e-8h). RolesInterceptor
+ * lets SUPER_ADMIN through ADMIN routes; which targets each role may suspend
+ * or reactivate is decided in AccountStatusService.
+ */
+@ApiTags('Users')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
 @ApiForbiddenResponse({
   description: 'Not an ADMIN/SUPER_ADMIN, or not allowed to act on this account',
 })
-@UseGuards(AuthGuard)
-@UseInterceptors(RolesInterceptor)
-@Roles(UserRole.ADMIN)
+@Secured(UserRole.ADMIN)
 @Controller('admin/users')
 export class AdminUsersController {
-  constructor(private readonly accounts: AccountStatusService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly accounts: AccountStatusService,
+  ) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List accounts (filter by role, status, name/email)' })
+  @ApiOkResponse({ type: UserPageResponseDto })
+  list(@Query() query: ListUsersQueryDto): Promise<UserPageResponseDto> {
+    return this.users.list(query);
+  }
+
+  @Get(':userId')
+  @ApiOperation({ summary: 'Get one account' })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiNotFoundResponse()
+  get(@Param('userId', ParseUUIDPipe) userId: string): Promise<UserResponseDto> {
+    return this.users.get(userId);
+  }
 
   @Post(':userId/suspend')
   @HttpCode(204)

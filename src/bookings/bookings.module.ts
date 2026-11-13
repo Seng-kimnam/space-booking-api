@@ -6,7 +6,9 @@ import { PlacesModule } from '../places/places.module';
 import { PlaceRulesService } from '../places/services/place-rules.service';
 import { SeatsModule } from '../seats/seats.module';
 import { SeatsService } from '../seats/services/seats.service';
-import { PLACE_RULES, SEAT_LOOKUP } from './bookings.ports';
+import { UsersModule } from '../users/users.module';
+import { UsersService } from '../users/users.service';
+import { NO_SHOW_COUNTER, PLACE_RULES, SEAT_LOOKUP } from './bookings.ports';
 import { AdminBookingsController } from './controllers/admin-bookings.controller';
 import { AttendanceController } from './controllers/attendance.controller';
 import { BookingsController } from './controllers/bookings.controller';
@@ -28,7 +30,7 @@ import { SeatAvailabilityService } from './services/seat-availability.service';
 /**
  * SEAT_LOOKUP is the real SeatsService and PLACE_RULES the real PlaceRulesService.
  * OUTBOX comes from the global MessagingModule (OutboxService). NO_SHOW_COUNTER
- * still comes from InterimPortsModule until users merges (see bookings.ports.ts). GET /seats/available and /seats/:id/availability
+ * is the real UsersService. GET /seats/available and /seats/:id/availability
  * are routed by SeatsController and answered by SeatAvailabilityService
  * (SEAT_AVAILABILITY port, BookingsBindingsModule).
  */
@@ -39,6 +41,7 @@ import { SeatAvailabilityService } from './services/seat-availability.service';
     AuthModule,
     SeatsModule,
     PlacesModule,
+    UsersModule,
     // Member eligibility at partner places and member ids in booking events.
     ExternalIdentitiesModule,
   ],
@@ -46,6 +49,7 @@ import { SeatAvailabilityService } from './services/seat-availability.service';
   providers: [
     { provide: SEAT_LOOKUP, useExisting: SeatsService },
     { provide: PLACE_RULES, useExisting: PlaceRulesService },
+    { provide: NO_SHOW_COUNTER, useExisting: UsersService },
     BookingsRepository,
     BookingRulesService,
     BookingActivityService,
