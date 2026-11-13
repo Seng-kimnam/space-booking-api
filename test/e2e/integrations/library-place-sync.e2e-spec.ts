@@ -16,7 +16,7 @@ import {
 } from '../../../src/configuration';
 import { dataSourceOptions } from '../../../src/database/data-source';
 import { LibraryIntegrationModule } from '../../../src/integrations/library/library-integration.module';
-import { LibraryPlaceSyncService } from '../../../src/integrations/library/library-place-sync.service';
+import { LibraryPlaceSyncService } from '../../../src/integrations/library/services/library-place-sync.service';
 import type { IncomingEnvelope } from '../../../src/messaging/consumers/consumer-route';
 import type { PlaceSnapshotV1 } from '../../../src/messaging/contract/types';
 import { InboxService } from '../../../src/messaging/inbox/inbox.service';

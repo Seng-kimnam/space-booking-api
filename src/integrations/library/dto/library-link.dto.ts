@@ -1,10 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, Length, Matches } from 'class-validator';
+import { LMS_ID_PATTERN } from '../library.constants';
 
 export class CreateLinkRequestDto {
   @ApiProperty({ example: '88', description: 'LMS member id (members.id as a string)' })
   @IsString()
-  @Matches(/^[0-9A-Za-z_-]{1,64}$/, { message: 'memberId must match [0-9A-Za-z_-]{1,64}' })
+  @Matches(LMS_ID_PATTERN, { message: 'memberId must match [0-9A-Za-z_-]{1,64}' })
   memberId: string;
 }
 

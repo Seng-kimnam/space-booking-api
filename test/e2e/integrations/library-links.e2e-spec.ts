@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { LibraryLinksService } from '../../../src/integrations/library/library-links.service';
+import { LibraryLinksService } from '../../../src/integrations/library/services/library-links.service';
 import type { IncomingEnvelope } from '../../../src/messaging/consumers/consumer-route';
 import { signToken } from '../../utils/auth-tokens';
 import { createTestApp } from '../../utils/create-test-app';

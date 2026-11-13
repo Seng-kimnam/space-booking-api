@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PlaceSnapshotV1 } from '../../messaging/contract/types';
+import type { PlaceSnapshotV1 } from '../../../messaging/contract/types';
 import { checkSnapshot } from './place-snapshot.rules';
 
 const base = (): PlaceSnapshotV1 =>
   (
     JSON.parse(
-      readFileSync(join(__dirname, '../../../docs/integration/fixtures/place.updated.v1.json'), 'utf-8'),
+      readFileSync(join(__dirname, '../../../../docs/integration/fixtures/place.updated.v1.json'), 'utf-8'),
     ) as { body: { data: PlaceSnapshotV1 } }
   ).body.data;
 

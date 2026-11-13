@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SchemaValidator } from '../../messaging/contract/schema-validator';
+import { SchemaValidator } from '../../../messaging/contract/schema-validator';
 import { LmsClient } from './lms.client';
 
 const snapshot = (
   JSON.parse(
-    readFileSync(join(__dirname, '../../../docs/integration/fixtures/place.updated.v1.json'), 'utf-8'),
+    readFileSync(join(__dirname, '../../../../docs/integration/fixtures/place.updated.v1.json'), 'utf-8'),
   ) as { body: { data: { placeId: string; revision: number } } }
 ).body.data;
 

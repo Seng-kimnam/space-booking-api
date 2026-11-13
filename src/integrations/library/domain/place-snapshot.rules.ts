@@ -1,9 +1,6 @@
-import type { PlaceSnapshotV1, PlaceSyncRejectedV1 } from '../../messaging/contract/types';
+import type { PlaceSnapshotV1, PlaceSyncRejectedV1 } from '../../../messaging/contract/types';
 
-/**
- * Prefix of the temporary labels/names used while applying a snapshot, so a
- * label swap (A1 <-> A2) never hits the unique index mid-update. Reserved.
- */
+/** Reserved prefix for temporary labels and names while a snapshot is applied. */
 export const TEMP_PREFIX = '~sync~';
 
 /** 'HH:mm' -> 'HH:mm:00' (the time column format we compare against). */
@@ -44,10 +41,8 @@ function firstDuplicate<T>(items: T[], key: (item: T) => string): [number, strin
 }
 
 /**
- * Business rules a schema can't express (docs/lms-integration-proposal.md
- * section 7.4.1). Run after schema validation, before anything is written.
- * Null = the snapshot can be applied. Rules match what our admin API accepts
- * (OpeningHourDto, ClosureDto, unique labels and area names).
+ * Rules the JSON schema can't express, matching what our admin API accepts.
+ * Returns null when the snapshot can be applied.
  */
 export function checkSnapshot(s: PlaceSnapshotV1): SnapshotRejection | null {
   if (!isValidTimeZone(s.timezone))

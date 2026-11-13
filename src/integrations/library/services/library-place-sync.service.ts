@@ -1,43 +1,46 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DataSource, EntityManager, IsNull, Not } from 'typeorm';
-import { Area } from '../../areas/entities/area.entity';
-import { BookingsRepository } from '../../bookings/repositories/bookings.repository';
-import { BookingsService } from '../../bookings/services/bookings.service';
-import { PlaceType, SeatStatus } from '../../common/enums';
+import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
+import { Area } from '../../../areas/entities/area.entity';
+import { BookingsRepository } from '../../../bookings/repositories/bookings.repository';
+import { BookingsService } from '../../../bookings/services/bookings.service';
+import { PlaceType, SeatStatus } from '../../../common/enums';
+import type { IncomingEnvelope } from '../../../messaging/consumers/consumer-route';
+import { MessageType } from '../../../messaging/contract/schemas';
 import type {
   PlaceSnapshotV1,
   PlaceSyncAppliedV1,
   PlaceSyncRejectedV1,
-} from '../../messaging/contract/types';
-import type { IncomingEnvelope } from '../../messaging/consumers/consumer-route';
-import { OutboxService } from '../../messaging/outbox/outbox.service';
-import { BookingPolicy } from '../../places/entities/booking-policy.entity';
-import { PlaceClosure } from '../../places/entities/place-closure.entity';
-import { PlaceOpeningHour } from '../../places/entities/place-opening-hour.entity';
-import { Place } from '../../places/entities/place.entity';
-import { OpeningHoursService } from '../../places/services/opening-hours.service';
-import { Seat } from '../../seats/entities/seat.entity';
-import { LIBRARY_SYSTEM, LibraryRoutingKey, PlaceChangeReason } from './library.constants';
-import { checkSnapshot, SnapshotRejection, TEMP_PREFIX, toDbTime } from './place-snapshot.rules';
+} from '../../../messaging/contract/types';
+import { OutboxService } from '../../../messaging/outbox/outbox.service';
+import { BookingPolicy } from '../../../places/entities/booking-policy.entity';
+import { PlaceClosure } from '../../../places/entities/place-closure.entity';
+import { PlaceOpeningHour } from '../../../places/entities/place-opening-hour.entity';
+import { Place } from '../../../places/entities/place.entity';
+import { OpeningHoursService } from '../../../places/services/opening-hours.service';
+import { Seat } from '../../../seats/entities/seat.entity';
+import { checkSnapshot, SnapshotRejection, TEMP_PREFIX, toDbTime } from '../domain/place-snapshot.rules';
+import { LIBRARY_SYSTEM } from '../library.constants';
 
 export type SyncOutcome =
   | { result: 'applied'; placeId: string; cancelledBookings: number }
   | { result: 'stale' }
   | { result: 'rejected'; code: string };
 
+/** booking_events.metadata.subReason when a sync cancels a booking. */
+type PlaceChangeReason = 'SEAT_REMOVED' | 'SEAT_NOT_ACTIVE' | 'PLACE_NOT_OPEN' | 'OUTSIDE_OPENING_HOURS';
+
+/** A row LMS owns, matched by its external id. */
+type ExternalRow = { id: string; externalId: string | null; deletedAt: Date | null };
+
+const isBookingOpen = (place: Place): boolean => place.isActive && place.externalOpen === true;
+
 /**
- * Applies an LMS place snapshot (place.created / place.updated) inside the
- * inbox transaction (docs/lms-integration-proposal.md section 6.1):
- * place, opening hours, future closures, areas, seats, then system-cancels the
- * future PENDING bookings the change makes impossible, then writes the
- * place.sync_applied reply. A snapshot that breaks our rules is not applied:
- * the reply is place.sync_rejected and the message is acked.
+ * Applies an LMS place snapshot inside the inbox transaction, then replies
+ * with place.sync_applied, or place.sync_rejected if it breaks our rules.
  *
- * shortcut: writes places/areas/seats rows directly on the manager instead of
- * through PlacesService/AreasService/SeatsService (docs/project-structure.md
- * section 3). Those services validate admin DTOs one row at a time and run
- * their own transactions; a snapshot must be applied as one unit, with
- * the two-step label swap and soft-delete/restore by external id.
+ * Writes rows directly instead of going through the Places/Areas/Seats
+ * services: a snapshot must land as one unit, with label swaps and
+ * restore-by-external-id that the admin services don't support.
  */
 @Injectable()
 export class LibraryPlaceSyncService {
@@ -100,14 +103,14 @@ export class LibraryPlaceSyncService {
       placeId: s.placeId,
       revision: s.revision,
       sbPlaceId: target.id,
-      bookingOpen: target.isActive && target.externalOpen === true,
+      bookingOpen: isBookingOpen(target),
       seats: s.seats.map((x) => ({ seatId: x.seatId, sbSeatId: seatIds.get(x.seatId)! })),
       cancelledBookings: cancelled,
     };
     await this.outbox.add(manager, {
       aggregateType: 'place',
       aggregateId: target.id,
-      eventType: LibraryRoutingKey.SYNC_APPLIED,
+      eventType: MessageType.PLACE_SYNC_APPLIED,
       payload: { schemaVersion: 1, ...reply },
     });
     this.logger.log(
@@ -116,7 +119,7 @@ export class LibraryPlaceSyncService {
     return { result: 'applied', placeId: target.id, cancelledBookings: cancelled };
   }
 
-  /** Current sync state of an LMS place (what its last place.sync_applied said). 404 if never applied. */
+  /** What the last place.sync_applied said about an LMS place. 404 if never applied. */
   async status(lmsPlaceId: string): Promise<Omit<PlaceSyncAppliedV1, 'cancelledBookings'>> {
     const m = this.dataSource.manager;
     const place = await m
@@ -131,15 +134,12 @@ export class LibraryPlaceSyncService {
       placeId: lmsPlaceId,
       revision: Number(place.externalRevision),
       sbPlaceId: place.id,
-      bookingOpen: place.isActive && place.externalOpen === true,
+      bookingOpen: isBookingOpen(place),
       seats: seats.map((x) => ({ seatId: x.externalId!, sbSeatId: x.id })),
     };
   }
 
-  /**
-   * Rows our admins created in this place before LMS took it over (no
-   * external_id) must not clash with snapshot labels or names.
-   */
+  /** Rows our admins made before LMS took the place over must not clash with snapshot labels or names. */
   private async checkUnmanagedConflicts(
     manager: EntityManager,
     placeId: string,
@@ -193,10 +193,9 @@ export class LibraryPlaceSyncService {
     };
     await this.outbox.add(manager, {
       aggregateType: 'place',
-      // Our place id when we have one; else the message id (aggregate_id is a uuid).
-      // The envelope subject is the LMS place id either way (envelope.ts).
+      // aggregate_id is a uuid: our place id if we have one, else the message id.
       aggregateId: placeId ?? envelope.id,
-      eventType: LibraryRoutingKey.SYNC_REJECTED,
+      eventType: MessageType.PLACE_SYNC_REJECTED,
       payload: { schemaVersion: 1, ...reply },
     });
     this.logger.warn(
@@ -204,7 +203,7 @@ export class LibraryPlaceSyncService {
     );
   }
 
-  /** New LMS place: not live until our admin reviews the policy and activates it (D12). */
+  /** New LMS places start inactive until our admin reviews the policy (D12). */
   private async createPlace(manager: EntityManager, s: PlaceSnapshotV1): Promise<Place> {
     const place = await manager.save(
       manager.create(Place, {
@@ -219,7 +218,7 @@ export class LibraryPlaceSyncService {
         externalOpen: false,
       }),
     );
-    // Default policy (column defaults), as for places created by our admins.
+    // Default policy (column defaults), same as admin-created places.
     await manager.insert(BookingPolicy, { placeId: place.id });
     this.logger.log(`LMS place created: place=${place.id} lms=${s.placeId} (inactive until an admin activates it)`);
     return place;
@@ -272,47 +271,23 @@ export class LibraryPlaceSyncService {
     );
   }
 
-  /** Upserts areas by external id (restoring soft-deleted ones). Returns LMS area id -> our id. */
+  /** Returns LMS area id -> our area id. */
   private async syncAreas(manager: EntityManager, placeId: string, s: PlaceSnapshotV1): Promise<Map<string, string>> {
     const repo = manager.getRepository(Area);
     const existing = await repo.find({ where: { placeId, externalId: Not(IsNull()) }, withDeleted: true });
-    const byExternal = new Map(existing.map((a) => [a.externalId!, a]));
-    const wanted = new Map(s.areas.map((a) => [a.areaId, a]));
-
-    // Step 1: live areas that get renamed or removed move to a temporary name,
-    // so swaps and reuse of a removed area's name never hit areas_place_name_uk.
-    let n = 0;
-    for (const area of existing) {
-      if (area.deletedAt) continue;
-      const next = wanted.get(area.externalId!);
-      if (!next || next.name !== area.name) {
-        await repo.update(area.id, { name: `${TEMP_PREFIX}${n++}` });
-      }
-    }
-
-    // Step 2: final values; restore what comes back, insert what's new.
-    const ids = new Map<string, string>();
-    for (const a of s.areas) {
-      const values = {
-        name: a.name,
-        floor: a.floor,
-        description: a.description,
-        isActive: a.status === 'ACTIVE',
-        deletedAt: null,
-      };
-      const found = byExternal.get(a.areaId);
-      if (found) {
-        await repo.update(found.id, values);
-        ids.set(a.areaId, found.id);
-      } else {
-        const inserted = await repo.insert({ placeId, externalId: a.areaId, ...values });
-        ids.set(a.areaId, inserted.identifiers[0].id as string);
-      }
-    }
-    return ids;
+    return this.upsertByExternalId(
+      repo,
+      placeId,
+      existing,
+      'name',
+      s.areas.map((a) => ({
+        externalId: a.areaId,
+        values: { name: a.name, floor: a.floor, description: a.description, isActive: a.status === 'ACTIVE' },
+      })),
+    );
   }
 
-  /** Upserts seats by external id, two-step labels, soft-deletes missing ones. Returns LMS seat id -> our id. */
+  /** Returns LMS seat id -> our seat id. Seats LMS no longer sends are soft-deleted. */
   private async syncSeats(
     manager: EntityManager,
     placeId: string,
@@ -321,40 +296,67 @@ export class LibraryPlaceSyncService {
   ): Promise<Map<string, string>> {
     const repo = manager.getRepository(Seat);
     const existing = await repo.find({ where: { placeId, externalId: Not(IsNull()) }, withDeleted: true });
-    const byExternal = new Map(existing.map((x) => [x.externalId!, x]));
-    const wanted = new Map(s.seats.map((x) => [x.seatId, x]));
+    const ids = await this.upsertByExternalId(
+      repo,
+      placeId,
+      existing,
+      'label',
+      s.seats.map((x) => ({
+        externalId: x.seatId,
+        values: {
+          label: x.label,
+          areaId: x.areaId === null ? null : areaIds.get(x.areaId)!,
+          features: x.features,
+          status: x.status as SeatStatus,
+        },
+      })),
+    );
+
+    // Soft delete, so booking history keeps pointing at the row.
+    const removed = existing.filter((x) => !x.deletedAt && !ids.has(x.externalId!)).map((x) => x.id);
+    if (removed.length > 0) await repo.softDelete(removed);
+    return ids;
+  }
+
+  /**
+   * Upserts rows by external id, restoring soft-deleted ones. Live rows that
+   * get renamed or removed first move to a temporary value, so swaps
+   * (A1 <-> A2) never hit the unique index mid-update.
+   */
+  private async upsertByExternalId<T extends ExternalRow & Record<F, string>, F extends 'name' | 'label'>(
+    repo: Repository<T>,
+    placeId: string,
+    existing: T[],
+    uniqueField: F,
+    wanted: { externalId: string; values: Record<F, string> & Record<string, unknown> }[],
+  ): Promise<Map<string, string>> {
+    type Update = Parameters<Repository<T>['update']>[1];
+    type Insert = Parameters<Repository<T>['insert']>[0];
+    const byExternal = new Map(existing.map((row) => [row.externalId!, row]));
+    const wantedById = new Map(wanted.map((w) => [w.externalId, w.values]));
 
     let n = 0;
-    for (const seat of existing) {
-      if (seat.deletedAt) continue;
-      const next = wanted.get(seat.externalId!);
-      if (!next || next.label !== seat.label) {
-        await repo.update(seat.id, { label: `${TEMP_PREFIX}${n++}` });
+    for (const row of existing) {
+      if (row.deletedAt) continue;
+      const next = wantedById.get(row.externalId!);
+      if (!next || next[uniqueField] !== row[uniqueField]) {
+        const temp: Record<string, unknown> = { [uniqueField]: `${TEMP_PREFIX}${n++}` };
+        await repo.update(row.id, temp as Update);
       }
     }
 
     const ids = new Map<string, string>();
-    for (const x of s.seats) {
-      const values = {
-        label: x.label,
-        areaId: x.areaId === null ? null : areaIds.get(x.areaId)!,
-        features: x.features,
-        status: x.status as SeatStatus,
-        deletedAt: null,
-      };
-      const found = byExternal.get(x.seatId);
+    for (const { externalId, values } of wanted) {
+      const row = { ...values, deletedAt: null };
+      const found = byExternal.get(externalId);
       if (found) {
-        await repo.update(found.id, values);
-        ids.set(x.seatId, found.id);
+        await repo.update(found.id, row as Update);
+        ids.set(externalId, found.id);
       } else {
-        const inserted = await repo.insert({ placeId, externalId: x.seatId, ...values });
-        ids.set(x.seatId, inserted.identifiers[0].id as string);
+        const inserted = await repo.insert({ placeId, externalId, ...row } as Insert);
+        ids.set(externalId, inserted.identifiers[0].id as string);
       }
     }
-
-    // Removed from LMS: soft delete; booking history keeps pointing at the row.
-    const removed = existing.filter((x) => !x.deletedAt && !wanted.has(x.externalId!)).map((x) => x.id);
-    if (removed.length > 0) await repo.softDelete(removed);
     return ids;
   }
 
@@ -372,8 +374,8 @@ export class LibraryPlaceSyncService {
   }
 
   /**
-   * Future PENDING bookings the new state makes impossible are cancelled by the
-   * system (D4). CHECKED_IN and CHECKOUT_OVERDUE bookings are never touched.
+   * System-cancels future PENDING bookings the new state makes impossible (D4).
+   * CHECKED_IN and CHECKOUT_OVERDUE bookings are never touched.
    */
   private async cancelAffectedBookings(manager: EntityManager, place: Place, now: Date): Promise<number> {
     const pending = await this.bookingsRepository.lockFuturePendingAtPlace(manager, place.id, now);
