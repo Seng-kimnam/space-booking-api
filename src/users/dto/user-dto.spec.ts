@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { ListUsersQueryDto, UpdateMyProfileDto } from './dto/user.dto';
+import { ListUsersQueryDto, UpdateMyProfileDto } from './user.dto';
 
 const errors = async (cls: new () => object, body: object) =>
   (await validate(plainToInstance(cls, body), { whitelist: true, forbidNonWhitelisted: true }))

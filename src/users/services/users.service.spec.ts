@@ -1,9 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { EntityManager, Repository } from 'typeorm';
-import { UserRole } from '../common/enums';
-import { ListUsersQueryDto } from './dto/user.dto';
-import { AdminRequestStatus, User } from './entities/user.entity';
+import { UserRole } from '../../common/enums/index';
+import { ListUsersQueryDto } from '../dto/user.dto';
+import { AdminRequestStatus, User } from '../entities/user.entity';
 import { UsersService } from './users.service';
 
 const user = (over: Partial<User> = {}): User =>

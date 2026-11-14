@@ -3,7 +3,7 @@ import { ExternalIdentitiesService } from '../../external-identities/external-id
 import { TelegramAccountsService } from '../../telegram/services/telegram-accounts.service';
 import type { LinkedAccounts, LinkedAccountsPort } from '../users.ports';
 
-/** LINKED_ACCOUNTS port: Telegram chat and partner (LMS) memberships of a user. */
+/** LINKED_ACCOUNTS port: a user's Telegram chat and LMS memberships. */
 @Injectable()
 export class LinkedAccountsService implements LinkedAccountsPort {
   constructor(

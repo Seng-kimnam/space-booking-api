@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { OtpPurpose } from '../../../src/common/enums';
-import { OtpService } from '../../../src/users/otp.service';
+import { OtpService } from '../../../src/users/services/otp.service';
 import { signToken } from '../../utils/auth-tokens';
 import { createTestApp } from '../../utils/create-test-app';
 

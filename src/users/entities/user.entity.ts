@@ -41,22 +41,19 @@ export class User {
   @Exclude()
   passwordHash: string | null;
 
-  // Column exists since the initial schema; mapped for PATCH /users/me.
   @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
   avatarUrl: string | null;
 
-  // New address waiting for its EMAIL_CHANGE code (users.me email change).
+  // New email awaiting its EMAIL_CHANGE code.
   @Column({ name: 'pending_email', type: 'citext', nullable: true })
   pendingEmail: string | null;
 
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt: Date | null;
 
-  // Password-reset codes live in user_otps (purpose PASSWORD_RESET), not on users
-  // (AGENTS.md section 5, docs/erd.md).
+  // Password-reset codes live in user_otps, not here.
 
-  // false = suspended: login and refresh are refused (AuthService). The column
-  // has existed since the initial schema; it just wasn't mapped.
+  // false = suspended (login and refresh refused).
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
@@ -69,8 +66,8 @@ export class User {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  // Soft delete (account closed). A plain column, not @DeleteDateColumn: rows
-  // with history stay readable by joins and admin lookups; auth refuses them.
+  // Closed account. Plain column, not @DeleteDateColumn, so joins and admin
+  // lookups still see the row.
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
 

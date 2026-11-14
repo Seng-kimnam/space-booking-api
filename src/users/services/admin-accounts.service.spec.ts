@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { UserRole } from '../common/enums';
+import { UserRole } from '../../common/enums/index';
 import { AdminAccountsService } from './admin-accounts.service';
-import { AdminRequestStatus, User } from './entities/user.entity';
+import { AdminRequestStatus, User } from '../entities/user.entity';
 
 const account = (id: string, role: UserRole, over: Partial<User> = {}) =>
   ({

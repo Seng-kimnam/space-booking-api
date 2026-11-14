@@ -1,12 +1,10 @@
-import { UserRole } from '../common/enums';
-import type { User } from './entities/user.entity';
+import { UserRole } from '../../common/enums/index';
+import type { User } from '../entities/user.entity';
 
 /**
- * Who may act on whom in /admin/users (docs/auth.md M3). Roles are read from
- * the database, not the JWT, which may be up to one token lifetime stale.
- * - ADMIN: USER accounts only.
- * - SUPER_ADMIN: USER and ADMIN accounts.
- * - Nobody: a SUPER_ADMIN, their own account, or as a suspended/closed actor.
+ * Who may act on whom (roles from the DB, not the possibly stale JWT):
+ * ADMIN -> USERs; SUPER_ADMIN -> USERs and ADMINs; never a SUPER_ADMIN,
+ * yourself, or as a suspended/closed actor.
  */
 export function canManage(actor: User | null, target: User): boolean {
   if (!actor || !actor.isActive || actor.deletedAt || actor.id === target.id) return false;
