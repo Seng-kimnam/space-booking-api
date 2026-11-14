@@ -19,10 +19,12 @@ import { UserOtp } from '../users/entities/user-otp.entity';
 import { Role } from '../roles/entities/role.entity';
 import * as dotenv from 'dotenv';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { FacebookStrategy } from './strategies/facebook.strategy';
+import { AuthIdentity } from './entities/auth-identity.entity';
 dotenv.config();
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken, UserOtp, Role]),
+    TypeOrmModule.forFeature([User, RefreshToken, UserOtp, Role, AuthIdentity]),
     // MailService reads mail.*: loaded here so AuthModule works in any host
     // module, including test modules that don't load every config.
     ConfigModule.forFeature(mailConfig),
@@ -41,7 +43,7 @@ dotenv.config();
     ThrottlerModule.forRoot({ throttlers: AUTH_THROTTLERS }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AuthCleanupService, SessionsService],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, FacebookStrategy, AuthCleanupService, SessionsService],
   // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
   exports: [AuthService, AuthCleanupService, SessionsService, AuthGuard, JwtModule],
 })

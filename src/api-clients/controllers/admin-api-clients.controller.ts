@@ -11,10 +11,10 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Secured } from '../../common/decorators/secured.decorator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { UserRole } from '../../common/enums';
 import {
   ApiClientPageResponseDto,
+  ApiClientQueryDto,
   ApiClientResponseDto,
   ApiClientWithKeyResponseDto,
   CreateApiClientDto,
@@ -43,7 +43,7 @@ export class AdminApiClientsController {
   @Get()
   @ApiOperation({ summary: 'List API clients' })
   @ApiOkResponse({ type: ApiClientPageResponseDto })
-  list(@Query() query: PaginationQueryDto): Promise<ApiClientPageResponseDto> {
+  list(@Query() query: ApiClientQueryDto): Promise<ApiClientPageResponseDto> {
     return this.clients.list(query);
   }
 

@@ -1,10 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { normalizeRoleName, ROLE_NAME_MAX } from './create-role.dto';
 
-export class RoleQueryDto extends PaginationQueryDto {
+export const ROLE_SORT_FIELDS = ['id', 'name'] as const;
+export type RoleSortField = (typeof ROLE_SORT_FIELDS)[number];
+
+export class RoleQueryDto extends SortablePaginationQueryDto(ROLE_SORT_FIELDS, 'id') {
   @ApiPropertyOptional({
     maxLength: ROLE_NAME_MAX,
     description: 'Roles whose name contains this text (case-insensitive)',

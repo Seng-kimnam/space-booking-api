@@ -1,3 +1,5 @@
+import { PageResponseDto } from '../../common/dto/page-response.dto';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
@@ -81,12 +83,12 @@ export class AreaResponseDto {
   @ApiProperty({ format: 'date-time' }) updatedAt: string;
 }
 
-export class AreaPageResponseDto {
-  @ApiProperty({ type: [AreaResponseDto] }) items: AreaResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class AreaPageResponseDto extends PageResponseDto(AreaResponseDto) {}
+
+export const AREA_SORT_FIELDS = ['name', 'createdAt'] as const;
+export type AreaSortField = (typeof AREA_SORT_FIELDS)[number];
+
+export class AreaQueryDto extends SortablePaginationQueryDto(AREA_SORT_FIELDS, 'name') {}
 
 // Explicit copy so internal fields (deletedAt, relations) never leak.
 export function toAreaResponse(a: Area): AreaResponseDto {
