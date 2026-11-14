@@ -4,7 +4,9 @@ import type { QueryDeepPartialEntity } from 'typeorm';
 import { BookingStatus, SeatStatus } from '../../common/enums';
 import {
   isPgError,
+  PG_DEADLOCK_DETECTED,
   PG_EXCLUSION_VIOLATION,
+  PG_SERIALIZATION_FAILURE,
 } from '../../common/utils/db-errors';
 import type { TimeRange } from '../../database/transformers/tstzrange.transformer';
 import {
@@ -35,7 +37,14 @@ export interface Page<T> {
 
 /** The exclusion constraint is the only double-booking check (AGENTS.md section 6.1). */
 function mapConflict(err: unknown): unknown {
-  return isPgError(err, PG_EXCLUSION_VIOLATION)
+  // Under heavy concurrency Postgres may abort one of two conflicting inserts
+  // with a deadlock/serialization error rather than 23P01. It is the same
+  // "another request won" outcome for the caller, so still 409.
+  const conflict =
+    isPgError(err, PG_EXCLUSION_VIOLATION) ||
+    isPgError(err, PG_DEADLOCK_DETECTED) ||
+    isPgError(err, PG_SERIALIZATION_FAILURE);
+  return conflict
     ? new ConflictException('This seat is already booked for that time')
     : err;
 }
