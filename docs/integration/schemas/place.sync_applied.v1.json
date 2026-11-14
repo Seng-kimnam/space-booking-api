@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/place.sync_applied.v1.json",
+  "title": "place.sync_applied data v1 (Space Booking -> LMS)",
+  "description": "A snapshot revision was applied, or our admin switched the place on or off (same revision). subject.id is the LMS placeId.",
+  "type": "object",
+  "required": [
+    "placeId",
+    "revision",
+    "sbPlaceId",
+    "bookingOpen",
+    "seats",
+    "cancelledBookings"
+  ],
+  "properties": {
+    "placeId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,64}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sbPlaceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "bookingOpen": {
+      "type": "boolean",
+      "description": "Space Booking is_active AND LMS status/bookingEnabled"
+    },
+    "seats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "seatId",
+          "sbSeatId"
+        ],
+        "properties": {
+          "seatId": {
+            "type": "string",
+            "pattern": "^[0-9A-Za-z_-]{1,64}$"
+          },
+          "sbSeatId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "cancelledBookings": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Bookings cancelled by this revision (count only)"
+    }
+  }
+}

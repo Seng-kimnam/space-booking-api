@@ -1,0 +1,72 @@
+{
+  "routingKey": "place.created",
+  "properties": {
+    "message_id": "55555555-5555-4555-8555-555555555555",
+    "type": "place.created",
+    "app_id": "library",
+    "user_id": "library",
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "55555555-5555-4555-8555-555555555555",
+    "type": "place.created",
+    "version": 1,
+    "source": "library",
+    "occurredAt": "2026-11-09T10:15:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "place",
+      "id": "1"
+    },
+    "data": {
+      "placeId": "1",
+      "code": "MAIN",
+      "revision": 42,
+      "name": "LibraFlow Main Library",
+      "description": null,
+      "address": "Street 1, Phnom Penh",
+      "lat": 11.5564,
+      "lng": 104.9282,
+      "timezone": "Asia/Phnom_Penh",
+      "status": "ACTIVE",
+      "bookingEnabled": true,
+      "openingHours": [
+        {
+          "weekday": 1,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        }
+      ],
+      "closures": [
+        {
+          "date": "2026-12-25",
+          "reason": "Public holiday"
+        }
+      ],
+      "areas": [
+        {
+          "areaId": "3",
+          "name": "Reading Room",
+          "floor": "2",
+          "type": "READING_ROOM",
+          "description": null,
+          "status": "ACTIVE"
+        }
+      ],
+      "seats": [
+        {
+          "seatId": "57",
+          "areaId": "3",
+          "label": "RR-12",
+          "features": {
+            "power": true
+          },
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  }
+}

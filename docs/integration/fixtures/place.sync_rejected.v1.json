@@ -1,0 +1,36 @@
+{
+  "routingKey": "place.sync_rejected",
+  "properties": {
+    "message_id": "33333333-3333-4333-8333-333333333333",
+    "type": "place.sync_rejected",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "type": "place.sync_rejected",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-09T10:15:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "place",
+      "id": "1"
+    },
+    "data": {
+      "placeId": "1",
+      "revision": 43,
+      "code": "INVALID_TIMEZONE",
+      "message": "Unknown time zone",
+      "details": [
+        {
+          "path": "timezone",
+          "value": "Mars/Olympus"
+        }
+      ]
+    }
+  }
+}
