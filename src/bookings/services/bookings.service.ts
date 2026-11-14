@@ -24,6 +24,7 @@ import { PLACE_RULES, SEAT_LOOKUP } from '../bookings.ports';
 import type { PlaceRulesPort, SeatLookupPort } from '../bookings.ports';
 import {
   AdminBookingsQueryDto,
+  BookingListQueryDto,
   CancelBookingDto,
   CreateBookingDto,
   ExtendBookingDto,
@@ -41,7 +42,11 @@ import {
 import { ExternalIdentitiesService } from '../../external-identities/external-identities.service';
 import { Booking } from '../entities/booking.entity';
 import { addMinutes } from '../domain/time';
-import { BookingsRepository } from '../repositories/bookings.repository';
+import {
+  type BookingListFilters,
+  BookingsRepository,
+} from '../repositories/bookings.repository';
+import { toPageResponse } from '../../common/utils/pagination';
 import {
   BookingActivityService,
   BookingRoutingKey,
@@ -60,6 +65,19 @@ const IDEMPOTENCY_UK = 'bookings_user_idempotency_uk';
  * booking_events, notifications and outbox_events rows (AGENTS.md section 6.11).
  * Overlaps are rejected by the database exclusion constraint only.
  */
+/**
+ * Status / place / [from, to) filters of a booking list. `from` after `to`
+ * is a 400 here: Postgres would reject the tstzrange with a 500.
+ */
+function listFilters(query: BookingListQueryDto): BookingListFilters {
+  const from = query.from ? new Date(query.from) : undefined;
+  const to = query.to ? new Date(query.to) : undefined;
+  if (from && to && from > to) {
+    throw new BadRequestException('`from` must not be after `to`');
+  }
+  return { status: query.status, placeId: query.placeId, from, to };
+}
+
 /** The times a pending alert's message shows, after its booking moved. */
 function rangeTimes(range: TimeRange): { startAt: string; endAt: string } {
   return { startAt: range.start.toISOString(), endAt: range.end.toISOString() };
@@ -210,15 +228,14 @@ export class BookingsService {
     user: AuthUser,
     query: MyBookingsQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
     const { items, total } = await this.bookings.listForUser(
       user.id,
       query.view ?? 'all',
-      page,
-      limit,
+      listFilters(query),
+      query,
+      query,
     );
-    return { items: items.map(toBookingResponse), page, limit, total };
+    return toPageResponse(query, items, total, toBookingResponse);
   }
 
   async getMine(
@@ -415,21 +432,12 @@ export class BookingsService {
   async listAll(
     query: AdminBookingsQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
     const { items, total } = await this.bookings.listAdmin(
-      {
-        status: query.status,
-        userId: query.userId,
-        seatId: query.seatId,
-        placeId: query.placeId,
-        from: query.from ? new Date(query.from) : undefined,
-        to: query.to ? new Date(query.to) : undefined,
-      },
-      page,
-      limit,
+      { ...listFilters(query), userId: query.userId, seatId: query.seatId },
+      query,
+      query,
     );
-    return { items: items.map(toBookingResponse), page, limit, total };
+    return toPageResponse(query, items, total, toBookingResponse);
   }
 
   async getAnyWithEvents(

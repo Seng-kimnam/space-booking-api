@@ -79,15 +79,21 @@ describe('seats Swagger contract', () => {
     expect(queryNames(listOp)).toEqual([
       'areaId',
       'limit',
+      'order',
       'page',
       'placeId',
+      'search',
+      'sortBy',
       'status',
     ]);
     const byPlaceOp = readOp('/api/v1/places/{placeId}/seats', 'get');
     expect(queryNames(byPlaceOp)).toEqual([
       'areaId',
       'limit',
+      'order',
       'page',
+      'search',
+      'sortBy',
       'status',
     ]);
 

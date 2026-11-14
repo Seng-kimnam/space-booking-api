@@ -21,7 +21,15 @@ import { BookingPolicyDto } from '../dto/booking-policy.dto';
 import { ClosureDto } from '../dto/closure.dto';
 import { CreatePlaceDto } from '../dto/create-place.dto';
 import { OpeningHourDto } from '../dto/opening-hour.dto';
-import { PlaceQueryDto } from '../dto/place-query.dto';
+import { PlaceQueryDto, type PlaceSortField } from '../dto/place-query.dto';
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  escapeLike,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
 import { UpdatePlaceDto } from '../dto/update-place.dto';
 import {
   PlaceDetailResponseDto,
@@ -82,7 +90,11 @@ export function assertNotPartnerManaged(
 }
 
 // For ILIKE: treat the user's %, _ and \ literally.
-export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, '\\$&');
+const PLACE_SORT: SortSpec<PlaceSortField> = {
+  columns: { name: 'place.name', createdAt: 'place.createdAt' },
+  default: { sortBy: 'name', order: SortOrder.ASC },
+  tieBreaker: 'place.id',
+};
 
 // DTO instances carry own `undefined` properties (useDefineForClassFields), and
 // Object.assign would copy them over real values.
@@ -125,18 +137,11 @@ export class PlacesService {
       qb.andWhere('place.name ILIKE :search', {
         search: `%${escapeLike(query.search)}%`,
       });
-    const [rows, total] = await qb
-      .orderBy('place.name')
-      .addOrderBy('place.id')
-      .skip((query.page - 1) * query.limit)
+    const [rows, total] = await applySort(qb, query, PLACE_SORT)
+      .skip(pageOffset(query))
       .take(query.limit)
       .getManyAndCount();
-    return {
-      items: rows.map(toPlaceResponse),
-      page: query.page,
-      limit: query.limit,
-      total,
-    };
+    return toPageResponse(query, rows, total, toPlaceResponse);
   }
 
   /** Public detail: 404 for inactive or deleted places. */

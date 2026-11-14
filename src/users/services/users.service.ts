@@ -13,6 +13,7 @@ import {
   ActivityPageResponseDto,
   BookingSummaryDto,
   ListUsersQueryDto,
+  type UserSortField,
   MyProfileResponseDto,
   NotificationPageResponseDto,
   toActivity,
@@ -38,8 +39,20 @@ import type {
   UserNotificationsPort,
 } from '../users.ports';
 
-/** Escapes LIKE wildcards so `q` is matched literally. */
-const escapeLike = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  escapeLike,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
+
+const USER_SORT: SortSpec<UserSortField> = {
+  columns: { createdAt: 'u.createdAt', name: 'u.name', email: 'u.email' },
+  default: { sortBy: 'createdAt', order: SortOrder.DESC },
+  tieBreaker: 'u.id',
+};
 
 function bound<T>(port: T | undefined, name: string): T {
   if (!port) throw new InternalServerErrorException(`${name} is not bound`);
@@ -103,7 +116,7 @@ export class UsersService implements NoShowCounterPort {
       limit,
       adminView,
     );
-    return { items: res.items.map(toNotification), page, limit, total: res.total };
+    return toPageResponse({ page, limit }, res.items, res.total, toNotification);
   }
 
   async activityOf(
@@ -114,17 +127,16 @@ export class UsersService implements NoShowCounterPort {
   ): Promise<ActivityPageResponseDto> {
     await (adminView ? this.find(userId) : this.findOpen(userId));
     const res = await bound(this.bookings, 'USER_BOOKINGS').activity(userId, page, limit);
-    return { items: res.items.map(toActivity), page, limit, total: res.total };
+    return toPageResponse({ page, limit }, res.items, res.total, toActivity);
   }
 
   async list(query: ListUsersQueryDto): Promise<UserPageResponseDto> {
     const qb = this.users
       .createQueryBuilder('u')
       .innerJoinAndSelect('u.role', 'r')
-      .orderBy('u.created_at', 'DESC')
-      .addOrderBy('u.id', 'ASC')
-      .skip((query.page - 1) * query.limit)
+      .skip(pageOffset(query))
       .take(query.limit);
+    applySort(qb, query, USER_SORT);
     qb.andWhere(query.deleted ? 'u.deleted_at IS NOT NULL' : 'u.deleted_at IS NULL');
     if (query.role) qb.andWhere('r.name = :role', { role: query.role });
     if (query.isActive !== undefined) qb.andWhere('u.is_active = :active', { active: query.isActive });
@@ -137,7 +149,7 @@ export class UsersService implements NoShowCounterPort {
       });
     }
     const [rows, total] = await qb.getManyAndCount();
-    return { items: rows.map(toUserResponse), page: query.page, limit: query.limit, total };
+    return toPageResponse(query, rows, total, toUserResponse);
   }
 
   /** Account plus sign-in methods, links and booking stats. */

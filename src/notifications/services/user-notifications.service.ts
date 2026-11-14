@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { UserNotificationItem, UserNotificationsPort } from '../../users/users.ports';
 import { Notification } from '../entities/notification.entity';
+import { pageOffset } from '../../common/utils/pagination';
 
 /**
  * The users module's USER_NOTIFICATIONS port: a user's alert history, newest
@@ -24,7 +25,7 @@ export class UserNotificationsService implements UserNotificationsPort {
     const [rows, total] = await this.notifications.findAndCount({
       where: { userId },
       order: { createdAt: 'DESC', id: 'ASC' },
-      skip: (page - 1) * limit,
+      skip: pageOffset({ page, limit }),
       take: limit,
     });
     return {

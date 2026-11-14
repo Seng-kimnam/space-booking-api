@@ -1,3 +1,4 @@
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '../entities/role.entity';
 
@@ -25,9 +26,4 @@ export class RoleResponseDto {
   }
 }
 
-export class RolePageResponseDto {
-  @ApiProperty({ type: [RoleResponseDto] }) items: RoleResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class RolePageResponseDto extends PageResponseDto(RoleResponseDto) {}

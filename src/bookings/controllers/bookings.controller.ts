@@ -32,8 +32,8 @@ import {
   CreateBookingDto,
   ExtendBookingDto,
   ModifyBookingDto,
+  BookingListQueryDto,
   MyBookingsQueryDto,
-  PaginationQueryDto,
   QrCodeQueryDto,
 } from '../dto/booking-request.dto';
 import {
@@ -97,7 +97,7 @@ export class BookingsController {
   @ApiOkResponse({ type: PaginatedBookingsResponseDto })
   upcoming(
     @CurrentAuthUser() user: AuthUser,
-    @Query() query: PaginationQueryDto,
+    @Query() query: BookingListQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
     return this.bookings.listMine(user, { ...query, view: 'upcoming' });
   }
@@ -107,7 +107,7 @@ export class BookingsController {
   @ApiOkResponse({ type: PaginatedBookingsResponseDto })
   history(
     @CurrentAuthUser() user: AuthUser,
-    @Query() query: PaginationQueryDto,
+    @Query() query: BookingListQueryDto,
   ): Promise<PaginatedBookingsResponseDto> {
     return this.bookings.listMine(user, { ...query, view: 'history' });
   }

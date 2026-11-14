@@ -17,17 +17,70 @@ import {
 import { BookingEvent } from '../entities/booking-event.entity';
 import { Booking } from '../entities/booking.entity';
 import { Seat } from '../../seats/entities/seat.entity';
+import { SortOrder, type SortQuery } from '../../common/dto/pagination-query.dto';
+import { applySort, pageOffset, type SortSpec } from '../../common/utils/pagination';
+import type { BookingSortField } from '../dto/booking-request.dto';
+
+interface PageQuery {
+  page: number;
+  limit: number;
+}
 
 export type BookingListView = 'all' | 'upcoming' | 'history';
 
-export interface AdminBookingFilters {
+/** Filters of the user's own booking list. */
+export interface BookingListFilters {
   status?: BookingStatus;
-  userId?: string;
-  seatId?: string;
   placeId?: string;
-  /** Bookings overlapping [from, to). */
+  /** Bookings overlapping [from, to); either side may be open. */
   from?: Date;
   to?: Date;
+}
+
+export interface AdminBookingFilters extends BookingListFilters {
+  userId?: string;
+  seatId?: string;
+}
+
+/** `sortBy` -> SQL. lower(time_range) is the booking start. */
+const BOOKING_SORT_COLUMNS: SortSpec<BookingSortField>['columns'] = {
+  startAt: 'lower(b.time_range)',
+  createdAt: 'b.createdAt',
+};
+
+/** Default order per list: newest first for "all", soonest first for upcoming. */
+const BOOKING_DEFAULT_SORT: Record<
+  BookingListView | 'admin',
+  SortSpec<BookingSortField>['default']
+> = {
+  all: { sortBy: 'createdAt', order: SortOrder.DESC },
+  upcoming: { sortBy: 'startAt', order: SortOrder.ASC },
+  history: { sortBy: 'startAt', order: SortOrder.DESC },
+  admin: { sortBy: 'startAt', order: SortOrder.DESC },
+};
+
+function bookingSort(list: BookingListView | 'admin'): SortSpec<BookingSortField> {
+  return {
+    columns: BOOKING_SORT_COLUMNS,
+    default: BOOKING_DEFAULT_SORT[list],
+    tieBreaker: 'b.id',
+  };
+}
+
+/** Filters shared by the user's and the admin's lists (query aliases b, s). */
+function applyListFilters(
+  qb: SelectQueryBuilder<Booking>,
+  filters: BookingListFilters,
+): void {
+  if (filters.status) qb.andWhere('b.status = :status', { status: filters.status });
+  if (filters.placeId) qb.andWhere('s.placeId = :placeId', { placeId: filters.placeId });
+  if (filters.from || filters.to) {
+    // Unbounded side = -infinity / infinity.
+    qb.andWhere(`b.time_range && tstzrange(:from, :to, '[)')`, {
+      from: filters.from?.toISOString() ?? null,
+      to: filters.to?.toISOString() ?? null,
+    });
+  }
 }
 
 export interface Page<T> {
@@ -228,7 +281,7 @@ export class BookingsRepository {
         ${where}
         ORDER BY e.created_at DESC, e.id ASC
         LIMIT $2 OFFSET $3`,
-      [userId, limit, (page - 1) * limit],
+      [userId, limit, pageOffset({ page, limit })],
     );
     const [{ total }] = await this.dataSource.query(
       `SELECT count(*)::int AS total FROM booking_events e
@@ -339,51 +392,41 @@ export class BookingsRepository {
   async listForUser(
     userId: string,
     view: BookingListView,
-    page: number,
-    limit: number,
+    filters: BookingListFilters,
+    sort: SortQuery<BookingSortField>,
+    page: PageQuery,
   ): Promise<Page<Booking>> {
     const qb = this.query().where('b.userId = :userId', { userId });
     if (view === 'upcoming') {
-      qb.andWhere('b.status IN (:...holding)', { holding: SEAT_HOLDING_STATUSES })
-        .orderBy('lower(b.time_range)', 'ASC');
+      qb.andWhere('b.status IN (:...holding)', { holding: SEAT_HOLDING_STATUSES });
     } else if (view === 'history') {
-      qb.andWhere('b.status IN (:...finished)', { finished: FINISHED_STATUSES })
-        .orderBy('lower(b.time_range)', 'DESC');
-    } else {
-      qb.orderBy('b.createdAt', 'DESC');
+      qb.andWhere('b.status IN (:...finished)', { finished: FINISHED_STATUSES });
     }
-    const [items, total] = await qb
-      // offset/limit, not skip/take: the joins are many-to-one so rows never
-      // multiply, and skip/take's DISTINCT subquery breaks ORDER BY lower(...).
-      .offset((page - 1) * limit)
-      .limit(limit)
-      .getManyAndCount();
-    return { items, total };
+    applyListFilters(qb, filters);
+    return this.page(applySort(qb, sort, bookingSort(view)), page);
   }
 
   async listAdmin(
     filters: AdminBookingFilters,
-    page: number,
-    limit: number,
+    sort: SortQuery<BookingSortField>,
+    page: PageQuery,
   ): Promise<Page<Booking>> {
     const qb = this.query();
-    if (filters.status) qb.andWhere('b.status = :status', { status: filters.status });
     if (filters.userId) qb.andWhere('b.userId = :userId', { userId: filters.userId });
     if (filters.seatId) qb.andWhere('b.seatId = :seatId', { seatId: filters.seatId });
-    if (filters.placeId) qb.andWhere('s.placeId = :placeId', { placeId: filters.placeId });
-    if (filters.from || filters.to) {
-      // Unbounded side = -infinity / infinity.
-      qb.andWhere(`b.time_range && tstzrange(:from, :to, '[)')`, {
-        from: filters.from?.toISOString() ?? null,
-        to: filters.to?.toISOString() ?? null,
-      });
-    }
+    applyListFilters(qb, filters);
+    return this.page(applySort(qb, sort, bookingSort('admin')), page);
+  }
+
+  private async page(
+    qb: SelectQueryBuilder<Booking>,
+    page: PageQuery,
+  ): Promise<Page<Booking>> {
     const [items, total] = await qb
-      .orderBy('lower(b.time_range)', 'DESC')
       // offset/limit, not skip/take: the joins are many-to-one so rows never
       // multiply, and skip/take's DISTINCT subquery breaks ORDER BY lower(...).
-      .offset((page - 1) * limit)
-      .limit(limit)
+      .offset(pageOffset(page))
+      .limit(page.limit)
       .getManyAndCount();
     return { items, total };
   }
@@ -476,7 +519,7 @@ export class BookingsRepository {
     const [items, total] = await qb
       .orderBy('seat.label')
       .addOrderBy('seat.id')
-      .skip((opts.page - 1) * opts.limit)
+      .skip(pageOffset(opts))
       .take(opts.limit)
       .getManyAndCount();
     return { items, total };

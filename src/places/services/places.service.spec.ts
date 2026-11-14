@@ -13,9 +13,9 @@ import type { PlaceChangeBookingsPort } from '../places.ports';
 import {
   PlacesService,
   definedOnly,
-  escapeLike,
   mapDbError,
 } from './places.service';
+import { escapeLike } from '../../common/utils/pagination';
 
 const dbError = (code: string, constraint: string) =>
   Object.assign(new QueryFailedError('q', [], new Error('x')), {

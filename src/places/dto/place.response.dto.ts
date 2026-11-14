@@ -1,3 +1,4 @@
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { PlaceType } from '../../common/enums';
 import { BookingPolicy } from '../entities/booking-policy.entity';
@@ -58,12 +59,7 @@ export class PlaceDetailResponseDto extends PlaceResponseDto {
   bookingPolicy: BookingPolicyResponseDto | null;
 }
 
-export class PlacePageResponseDto {
-  @ApiProperty({ type: [PlaceResponseDto] }) items: PlaceResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class PlacePageResponseDto extends PageResponseDto(PlaceResponseDto) {}
 
 // Explicit copies so internal fields (deletedAt, relations, ids of child rows) never leak.
 export function toPlaceResponse(p: Place): PlaceResponseDto {

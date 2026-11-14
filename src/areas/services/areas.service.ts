@@ -6,7 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
 import {
   assertNotPartnerManaged,
@@ -14,6 +20,8 @@ import {
 } from '../../places/services/places.service';
 import {
   AreaPageResponseDto,
+  AreaQueryDto,
+  type AreaSortField,
   CreateAreaDto,
   toAreaResponse,
   UpdateAreaDto,
@@ -21,6 +29,12 @@ import {
 import { Area } from '../entities/area.entity';
 
 const AREA_NOT_FOUND = 'Area not found';
+
+const AREA_SORT: SortSpec<AreaSortField> = {
+  columns: { name: 'area.name', createdAt: 'area.createdAt' },
+  default: { sortBy: 'name', order: SortOrder.ASC },
+  tieBreaker: 'area.id',
+};
 
 @Injectable()
 export class AreasService {
@@ -35,21 +49,17 @@ export class AreasService {
   /** Public: active areas of an active place. 404 if the place isn't visible. */
   async listByPlace(
     placeId: string,
-    query: PaginationQueryDto,
+    query: AreaQueryDto,
   ): Promise<AreaPageResponseDto> {
     await this.places.getActivePlace(placeId);
-    const [rows, total] = await this.areas.findAndCount({
-      where: { placeId, isActive: true },
-      order: { name: 'ASC', id: 'ASC' },
-      skip: (query.page - 1) * query.limit,
-      take: query.limit,
-    });
-    return {
-      items: rows.map(toAreaResponse),
-      page: query.page,
-      limit: query.limit,
-      total,
-    };
+    const qb = this.areas
+      .createQueryBuilder('area')
+      .where('area.placeId = :placeId AND area.isActive = true', { placeId });
+    const [rows, total] = await applySort(qb, query, AREA_SORT)
+      .skip(pageOffset(query))
+      .take(query.limit)
+      .getManyAndCount();
+    return toPageResponse(query, rows, total, toAreaResponse);
   }
 
   /** Admins may add areas to inactive places, not to deleted ones. */
