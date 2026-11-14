@@ -32,15 +32,14 @@ const toBool = ({ value }: { value: unknown }) =>
   value === 'true' ? true : value === 'false' ? false : value;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-/** Roles an admin can hand out. SUPER_ADMIN is only created by seed. */
+/** Roles an admin can assign (SUPER_ADMIN comes from the seed only). */
 export const ASSIGNABLE_ROLES = [UserRole.USER, UserRole.ADMIN] as const;
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-// ---------------------------------------------------------------- requests
+// Requests
 
-// Not PartialType: its @IsOptional also lets null through, and null on the
-// NOT NULL `name` column would reach Postgres as a 500. Only undefined means
-// "unchanged"; avatarUrl alone may be null (clears it).
+// Not PartialType: it would let `name: null` reach the NOT NULL column (500).
+// undefined = unchanged; only avatarUrl accepts null (clears it).
 export class UpdateMyProfileDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 100, example: 'John Doe' })
   @Transform(trim)
@@ -63,7 +62,7 @@ export class UpdateMyProfileDto {
   avatarUrl?: string | null;
 }
 
-/** Admin edit: the profile fields plus a no-show reset. */
+/** Profile fields plus a no-show reset. */
 export class AdminUpdateUserDto extends UpdateMyProfileDto {
   @ApiPropertyOptional({ description: 'true sets no_show_count back to 0' })
   @IsOptional()
@@ -163,7 +162,7 @@ export class ListUsersQueryDto extends PaginationQueryDto {
   q?: string;
 }
 
-// --------------------------------------------------------------- responses
+// Responses
 
 export class MessageDto {
   @ApiProperty() message: string;
@@ -187,7 +186,7 @@ export class LinkedAccountsDto {
   @ApiProperty({ type: [ExternalLinkDto] }) external: ExternalLinkDto[];
 }
 
-/** Admin view of an account. Never includes the password hash or provider ids. */
+/** Admin view. Never includes the password hash or provider ids. */
 export class UserResponseDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty({ example: 'John Doe' }) name: string;
@@ -328,7 +327,7 @@ export class UserStatsResponseDto {
   @ApiProperty({ type: [TopNoShowDto] }) topNoShows: TopNoShowDto[];
 }
 
-// ----------------------------------------------------------------- mappers
+// Mappers
 
 export function toUserResponse(u: User): UserResponseDto {
   return {

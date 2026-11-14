@@ -10,12 +10,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { AuthService } from '../auth/services/auth.service';
-import { SessionInfo, SessionsService } from '../auth/services/sessions.service';
-import { canManage } from './account-policy';
-import { User } from './entities/user.entity';
-import { USER_BOOKINGS } from './users.ports';
-import type { UserBookingsPort } from './users.ports';
+import { AuthService } from '../../auth/services/auth.service';
+import { SessionInfo, SessionsService } from '../../auth/services/sessions.service';
+import { canManage } from '../policies/account-policy';
+import { User } from '../entities/user.entity';
+import { USER_BOOKINGS } from '../users.ports';
+import type { UserBookingsPort } from '../users.ports';
 
 export type AccountAction =
   | 'suspend'
@@ -27,13 +27,8 @@ export type AccountAction =
   | 'manage sessions of';
 
 /**
- * Account status changes (docs/auth.md M3, docs/api-endpoints.md 8e-8p):
- * suspend/reactivate, close (self or admin) and restore, revoke sessions,
- * manual email verification. Who may act on whom: account-policy.ts.
- *
- * Suspended or closed accounts can't log in or refresh, and these changes
- * revoke their refresh tokens, so access ends within one access-token
- * lifetime (15 min by default).
+ * Suspend/reactivate, close/restore, revoke sessions, verify email.
+ * Revoking refresh tokens ends access within one access-token lifetime.
  */
 @Injectable()
 export class AccountStatusService {
@@ -67,7 +62,7 @@ export class AccountStatusService {
     this.logger.log(`Account reactivated: user=${target.id} by=${actorId}`);
   }
 
-  /** DELETE /users/me: the owner closes their account (password confirmed). */
+  /** Owner closes their own account (password confirmed). */
   async closeOwn(userId: string, password: string | undefined): Promise<void> {
     const user = await this.usersRepository.findOneBy({ id: userId });
     if (!user || user.deletedAt) throw new NotFoundException('User not found');
@@ -75,17 +70,14 @@ export class AccountStatusService {
     await this.close(user.id, userId);
   }
 
-  /** DELETE /admin/users/:userId. Idempotent. */
+  /** Idempotent. */
   async closeByAdmin(actorId: string, userId: string): Promise<void> {
     const target = await this.authorize(actorId, userId, 'delete', true);
     if (target.deletedAt) return;
     await this.close(target.id, actorId);
   }
 
-  /**
-   * Reopens a closed account. The email was kept reserved, so it can't clash.
-   * Bookings cancelled at closure stay cancelled; the user signs in again.
-   */
+  /** Reopens a closed account; cancelled bookings stay cancelled. */
   async restore(actorId: string, userId: string): Promise<void> {
     const target = await this.authorize(actorId, userId, 'restore', true);
     if (!target.deletedAt) return;
@@ -98,7 +90,7 @@ export class AccountStatusService {
     return this.sessions.list(target.id);
   }
 
-  /** Forced logout on every device, without suspending. */
+  /** Logs out every device without suspending. */
   async revokeSessions(actorId: string, userId: string): Promise<void> {
     const target = await this.authorize(actorId, userId, 'manage sessions of', true);
     const revoked = await this.authService.revokeAllSessions(
@@ -108,7 +100,7 @@ export class AccountStatusService {
     this.logger.log(`Sessions revoked: user=${target.id} by=${actorId} count=${revoked}`);
   }
 
-  /** Marks the email verified by hand (support case). Idempotent. */
+  /** Idempotent. */
   async verifyEmail(actorId: string, userId: string): Promise<void> {
     const target = await this.authorize(actorId, userId, 'verify');
     if (target.emailVerifiedAt) return;
@@ -116,10 +108,7 @@ export class AccountStatusService {
     this.logger.log(`Email verified by admin: user=${target.id} by=${actorId}`);
   }
 
-  /**
-   * Loads the actor and target and applies account-policy. A closed target is
-   * 409 unless the action handles closed accounts (`allowClosed`).
-   */
+  /** Applies account-policy; a closed target is 409 unless `allowClosed`. */
   async authorize(
     actorId: string,
     userId: string,
@@ -145,9 +134,8 @@ export class AccountStatusService {
   }
 
   /**
-   * One transaction: lock the user row (booking creation takes the same lock,
-   * so no booking slips in), refuse while a seat is in use, cancel PENDING
-   * bookings, mark closed, revoke every session.
+   * One transaction. The row lock is the one booking creation takes, so no
+   * booking slips in between the cancel and the close.
    */
   private async close(userId: string, actorId: string): Promise<void> {
     const bookings = this.bookings;

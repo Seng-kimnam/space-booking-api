@@ -23,14 +23,14 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthService } from '../auth/services/auth.service';
-import { SessionsService } from '../auth/services/sessions.service';
-import { CurrentAuthUser } from '../common/decorators/current-auth-user.decorator';
-import { Secured } from '../common/decorators/secured.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { UserRole } from '../common/enums';
-import type { AuthUser } from '../common/types/auth-user';
-import { AccountStatusService } from './account-status.service';
+import { AuthService } from '../../auth/services/auth.service';
+import { SessionsService } from '../../auth/services/sessions.service';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { UserRole } from '../../common/enums/index';
+import type { AuthUser } from '../../common/types/auth-user';
+import { AccountStatusService } from '../services/account-status.service';
 import {
   ActivityPageResponseDto,
   BookingSummaryDto,
@@ -42,14 +42,10 @@ import {
   PasswordConfirmationDto,
   SessionResponseDto,
   UpdateMyProfileDto,
-} from './dto/user.dto';
-import { UsersService } from './users.service';
+} from '../dto/user.dto';
+import { UsersService } from '../services/users.service';
 
-/**
- * The caller's own account (docs/api-endpoints.md section 1, 9b-9k). The
- * account is always the authenticated one, never an id from the request.
- * SUPER_ADMIN passes ADMIN routes (RolesInterceptor).
- */
+/** The caller's own account; always the authenticated user, never an id from the request. */
 @ApiTags('Users')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()

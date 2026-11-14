@@ -10,11 +10,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
-import { AuthService } from '../auth/services/auth.service';
-import { UserRole } from '../common/enums';
-import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
-import { Role } from '../roles/entities/role.entity';
-import { isSuperAdmin } from './account-policy';
+import { AuthService } from '../../auth/services/auth.service';
+import { UserRole } from '../../common/enums/index';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
+import { Role } from '../../roles/entities/role.entity';
+import { isSuperAdmin } from '../policies/account-policy';
 import { AccountStatusService } from './account-status.service';
 import {
   AdminUpdateUserDto,
@@ -22,13 +22,10 @@ import {
   CreateUserDto,
   toUserResponse,
   UserResponseDto,
-} from './dto/user.dto';
-import { AdminRequestStatus, User } from './entities/user.entity';
+} from '../dto/user.dto';
+import { AdminRequestStatus, User } from '../entities/user.entity';
 
-/**
- * Admin account management that changes account data (docs/api-endpoints.md
- * 8i-8k): create, edit, change role. Status changes live in AccountStatusService.
- */
+/** Admin create, edit and role change. Status changes: AccountStatusService. */
 @Injectable()
 export class AdminAccountsService {
   private readonly logger = new Logger(AdminAccountsService.name);
@@ -43,11 +40,7 @@ export class AdminAccountsService {
     private readonly dataSource: DataSource,
   ) {}
 
-  /**
-   * Creates a verified account with an unusable random password, then mails a
-   * PASSWORD_RESET code so the user sets their own (POST /auth/reset-password).
-   * Admins never choose or see a user's password.
-   */
+  /** Verified account with a random password; the user sets theirs via a reset code. */
   async create(actorId: string, dto: CreateUserDto): Promise<UserResponseDto> {
     const role = dto.role ?? UserRole.USER;
     const actor = await this.users.findOneBy({ id: actorId });
@@ -62,7 +55,7 @@ export class AdminAccountsService {
         this.users.create({
           name: dto.name,
           email: dto.email,
-          // users_has_credential CHECK needs a credential; nobody knows this one.
+          // Satisfies the credential CHECK; nobody knows it.
           passwordHash: await bcrypt.hash(randomUUID() + randomUUID(), 10),
           role: roleRow,
           emailVerifiedAt: now,
@@ -110,11 +103,7 @@ export class AdminAccountsService {
     return toUserResponse(saved);
   }
 
-  /**
-   * SUPER_ADMIN only. Revokes the user's sessions in the same transaction so
-   * the next token carries the new role (the current access token keeps the
-   * old role until it expires).
-   */
+  /** SUPER_ADMIN only. Revokes sessions so the next token has the new role. */
   async changeRole(
     actorId: string,
     userId: string,

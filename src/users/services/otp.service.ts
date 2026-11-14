@@ -1,17 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import { OtpPurpose } from '../common/enums';
-import type { LinkCodesPort } from '../telegram/telegram.ports';
-import { UserOtp } from './entities/user-otp.entity';
+import { OtpPurpose } from '../../common/enums/index';
+import type { LinkCodesPort } from '../../telegram/telegram.ports';
+import { UserOtp } from '../entities/user-otp.entity';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
-/**
- * Telegram link codes in user_otps (TELEGRAM_LINK_CODES port): hash only,
- * single use, one live code per user and purpose (user_otps_live_uk).
- * Email OTPs (verify, password reset) are still issued by AuthService.
- */
+/** Telegram link codes (TELEGRAM_LINK_CODES port): hashed, single use, one live per user. */
 @Injectable()
 export class OtpService implements LinkCodesPort {
   constructor(private readonly dataSource: DataSource) {}
@@ -24,7 +20,7 @@ export class OtpService implements LinkCodesPort {
     const code = randomBytes(24).toString('base64url'); // 32 chars, t.me-safe
     const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
     await this.dataSource.transaction(async (m) => {
-      // Retire the previous live code (partial unique index user_otps_live_uk).
+      // Retire the previous live code (user_otps_live_uk).
       await m.query(
         `UPDATE user_otps SET used_at = now()
           WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`,
@@ -40,9 +36,8 @@ export class OtpService implements LinkCodesPort {
   }
 
   async consume(code: string, purpose: OtpPurpose.TELEGRAM_LINK): Promise<string | null> {
-    // Atomic: a concurrent second consume finds used_at set and gets nothing.
-    // Query builder, not ds.query(): for UPDATE ... RETURNING, ds.query() on
-    // Postgres returns [rows, affectedCount], not rows. `.raw` is always rows.
+    // Atomic single use. Query builder because ds.query() returns
+    // [rows, count] for UPDATE ... RETURNING; `.raw` is always rows.
     const result = await this.dataSource
       .createQueryBuilder()
       .update(UserOtp)
