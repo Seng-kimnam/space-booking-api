@@ -8,8 +8,14 @@ import type { AuthUser } from '../types/auth-user';
  */
 export const CurrentAuthUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuthUser => {
-    const user = ctx.switchToHttp().getRequest<{ user?: { sub?: string; role?: string } }>().user;
+    const user = ctx
+      .switchToHttp()
+      .getRequest<{ user?: { sub?: string; role?: string; sid?: string } }>().user;
     if (!user?.sub || !user.role) throw new UnauthorizedException();
-    return { id: user.sub, role: user.role as UserRole };
+    return {
+      id: user.sub,
+      role: user.role as UserRole,
+      ...(user.sid ? { sessionId: user.sid } : {}),
+    };
   },
 );

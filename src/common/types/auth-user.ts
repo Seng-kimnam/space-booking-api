@@ -8,4 +8,6 @@ import { UserRole } from '../enums';
 export interface AuthUser {
   id: string;
   role: UserRole;
+  /** The session (refresh-token id) this access token was issued for, if any. */
+  sessionId?: string;
 }

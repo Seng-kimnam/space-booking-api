@@ -3,7 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { AuthService } from '../../../src/auth/auth.service';
+import { AuthService } from '../../../src/auth/services/auth.service';
 import { signToken } from '../../utils/auth-tokens';
 import { createTestApp } from '../../utils/create-test-app';
 
@@ -220,9 +220,9 @@ describe('auth sessions and access control (real Postgres)', () => {
       expect(bad.status).toBe(400);
     });
 
-    it('USER gets 403 on /admin/bookings; the /users scaffold needs ADMIN', async () => {
+    it('USER gets 403 on /admin/bookings and /admin/users', async () => {
       const user = await signToken(app, 'USER');
-      for (const url of ['/api/v1/admin/bookings', '/api/v1/users']) {
+      for (const url of ['/api/v1/admin/bookings', '/api/v1/admin/users']) {
         expect((await http().get(url)).status).toBe(401);
         expect(
           (await http().get(url).set('Authorization', `Bearer ${user}`)).status,

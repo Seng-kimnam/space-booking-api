@@ -3,15 +3,14 @@ import { ConfigModule, ConfigType } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { AuthController } from './auth.controller';
-import { AdminUsersController } from './admin-users.controller';
-import { AUTH_THROTTLERS } from './auth-throttle';
-import { AuthService } from './auth.service';
-import { AccountStatusService } from './account-status.service';
-import { AuthCleanupService } from './auth-cleanup.service';
-import { AuthGuard } from './auth.guard';
-import { MailService } from './mail.service';
-import { jwtModuleOptions } from './jwt-options';
+import { AuthController } from './controllers/auth.controller';
+import { AUTH_THROTTLERS } from './config/auth-throttle';
+import { AuthService } from './services/auth.service';
+import { AuthCleanupService } from './services/auth-cleanup.service';
+import { SessionsService } from './services/sessions.service';
+import { AuthGuard } from './guards/auth.guard';
+import { MailService } from './services/mail.service';
+import { jwtModuleOptions } from './config/jwt-options';
 import { authConfig } from '../configuration/auth.config';
 import { mailConfig } from '../configuration/mail.config';
 import { User } from '../users/entities/user.entity';
@@ -41,9 +40,9 @@ dotenv.config();
     // marked @AuthThrottle(...) in AuthController are throttled.
     ThrottlerModule.forRoot({ throttlers: AUTH_THROTTLERS }),
   ],
-  controllers: [AuthController, AdminUsersController],
-  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AccountStatusService, AuthCleanupService],
+  controllers: [AuthController],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, AuthCleanupService, SessionsService],
   // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
-  exports: [AuthService, AuthCleanupService, AuthGuard, JwtModule],
+  exports: [AuthService, AuthCleanupService, SessionsService, AuthGuard, JwtModule],
 })
 export class AuthModule {}

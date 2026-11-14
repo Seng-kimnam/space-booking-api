@@ -1,7 +1,7 @@
 import { applyDecorators, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
-import { AuthGuard } from '../../auth/auth.guard';
-import { Roles } from '../../auth/role.decorator';
-import { RolesInterceptor } from '../../auth/roles.interceptor';
+import { AuthGuard } from '../../auth/guards/auth.guard';
+import { Roles } from '../../auth/decorators/role.decorator';
+import { RolesInterceptor } from '../../auth/interceptors/roles.interceptor';
 import { UserRole } from '../enums';
 
 /**

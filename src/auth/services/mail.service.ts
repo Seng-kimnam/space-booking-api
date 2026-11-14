@@ -31,18 +31,30 @@ export class MailService {
 
   async sendOtp(
     email: string,
-    purpose: 'EMAIL_VERIFY' | 'PASSWORD_RESET',
+    purpose: 'EMAIL_VERIFY' | 'PASSWORD_RESET' | 'EMAIL_CHANGE',
     otp: string,
   ): Promise<void> {
-    const subject =
-      purpose === 'EMAIL_VERIFY'
-        ? 'Verify your Space Booking account'
-        : 'Reset your Space Booking password';
+    const subject = {
+      EMAIL_VERIFY: 'Verify your Space Booking account',
+      PASSWORD_RESET: 'Reset your Space Booking password',
+      EMAIL_CHANGE: 'Confirm your new Space Booking email address',
+    }[purpose];
     await this.send(
       email,
       subject,
       `Your one-time code is ${otp}. It expires in 10 minutes.`,
       purpose,
+    );
+  }
+
+  /** Security notice to the OLD address after an email change. Contains no secret. */
+  async sendEmailChanged(email: string): Promise<void> {
+    await this.send(
+      email,
+      'Your Space Booking email address was changed',
+      'The email address of your account was just changed. ' +
+        'If this was not you, contact support immediately.',
+      'EMAIL_CHANGED',
     );
   }
 
@@ -63,7 +75,7 @@ export class MailService {
     text: string,
     purpose: string,
   ): Promise<void> {
-    const kind = purpose === 'PASSWORD_CHANGED' ? 'Notice' : 'OTP';
+    const kind = purpose.endsWith('_CHANGED') ? 'Notice' : 'OTP';
     try {
       await this.transporter.sendMail({ from: this.from, to, subject, text });
     } catch (err) {

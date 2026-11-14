@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { UserOtp } from '../users/entities/user-otp.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserOtp } from '../../users/entities/user-otp.entity';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

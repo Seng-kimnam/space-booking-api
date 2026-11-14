@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -22,14 +23,14 @@ import {
   AdminRequestStatus,
   User,
   UserRole,
-} from '../users/entities/user.entity';
-import { Role } from '../roles/entities/role.entity';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { UserOtp } from '../users/entities/user-otp.entity';
-import { OtpPurpose } from '../common/enums';
+} from '../../users/entities/user.entity';
+import { Role } from '../../roles/entities/role.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserOtp } from '../../users/entities/user-otp.entity';
+import { OtpPurpose } from '../../common/enums/index';
 import { MailService } from './mail.service';
-import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
-import { GoogleProfile } from './strategies/google.strategy';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
+import { GoogleProfile } from '../strategies/google.strategy';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -53,6 +54,8 @@ export const RESEND_MESSAGE =
   'If the account needs verification, a new code has been sent.';
 export const FORGOT_MESSAGE =
   'If an account exists for this email, a password reset code has been sent.';
+export const EMAIL_CHANGE_MESSAGE =
+  'If the address can be used, a confirmation code has been sent to it.';
 
 /** Rows from `UPDATE ... RETURNING` (query builder puts them in `.raw`). */
 function rowsOf<T = unknown>(result: UpdateResult): T[] {
@@ -134,7 +137,8 @@ export class AuthService {
     if (existing) {
       // Same response as a new registration (docs/auth.md M4). An unverified
       // owner gets a fresh code (cooldown applies); nothing else changes.
-      if (!existing.emailVerifiedAt) {
+      // A deleted account keeps its email reserved and gets nothing.
+      if (!existing.emailVerifiedAt && !existing.deletedAt) {
         await this.issueOtp(existing, OtpPurpose.EMAIL_VERIFY);
       }
       return { message };
@@ -172,7 +176,7 @@ export class AuthService {
   }
 
   async verifyEmail(email: string, otp: string): Promise<{ message: string }> {
-    const user = await this.usersRepository.findOneBy({ email });
+    const user = await this.findLiveByEmail(email);
     if (!user) {
       await this.burnHashTime(otp);
       throw new UnauthorizedException(INVALID_OTP);
@@ -189,7 +193,7 @@ export class AuthService {
   }
 
   async resendOtp(email: string): Promise<{ message: string }> {
-    const user = await this.usersRepository.findOneBy({ email });
+    const user = await this.findLiveByEmail(email);
     if (user && !user.emailVerifiedAt) {
       await this.issueOtp(user, OtpPurpose.EMAIL_VERIFY);
     } else {
@@ -199,7 +203,7 @@ export class AuthService {
   }
 
   async login(email: string, password: string, meta: SessionMeta = {}) {
-    const user = await this.usersRepository.findOneBy({ email });
+    const user = await this.findLiveByEmail(email);
     const passwordOk = user?.passwordHash
       ? await bcrypt.compare(password, user.passwordHash)
       : await this.burnHashTime(password);
@@ -367,7 +371,7 @@ export class AuthService {
 
   async getProfile(userId: string): Promise<AuthUser> {
     const user = await this.usersRepository.findOneBy({ id: userId });
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new UnauthorizedException();
     }
     return this.toAuthUser(user);
@@ -398,7 +402,7 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    const user = await this.usersRepository.findOneBy({ email });
+    const user = await this.findLiveByEmail(email);
     if (user) {
       await this.issueOtp(user, OtpPurpose.PASSWORD_RESET);
     } else {
@@ -412,7 +416,7 @@ export class AuthService {
     otp: string,
     newPassword: string,
   ): Promise<{ message: string }> {
-    const user = await this.usersRepository.findOneBy({ email });
+    const user = await this.findLiveByEmail(email);
     if (!user) {
       await this.burnHashTime(otp);
       throw new UnauthorizedException(INVALID_OTP);
@@ -428,6 +432,76 @@ export class AuthService {
     this.logger.log(`Password reset: user=${user.id}`);
     this.notifyPasswordChanged(user);
     return { message: 'Password reset successfully' };
+  }
+
+  /**
+   * Starts an email change (docs/api-endpoints.md 9e): stores the new address
+   * as pending and mails an EMAIL_CHANGE code to it. A taken address gets the
+   * same answer and no mail, so this can't be used to probe for accounts.
+   */
+  async requestEmailChange(
+    userId: string,
+    newEmail: string,
+    password: string | undefined,
+  ): Promise<{ message: string }> {
+    const user = await this.findLiveById(userId);
+    await this.assertPassword(user, password);
+    if (newEmail.toLowerCase() === user.email.toLowerCase()) {
+      throw new BadRequestException('This is already your email address');
+    }
+    const taken = await this.usersRepository.findOneBy({ email: newEmail });
+    if (taken) {
+      await this.burnHashTime(newEmail);
+    } else {
+      await this.usersRepository.update(user.id, { pendingEmail: newEmail });
+      await this.issueOtp(user, OtpPurpose.EMAIL_CHANGE, newEmail);
+    }
+    this.logger.log(`Email change requested: user=${user.id}`);
+    return { message: EMAIL_CHANGE_MESSAGE };
+  }
+
+  /**
+   * Confirms the pending email with the code sent to it. The old address gets
+   * a security notice. 409 if someone took the address in the meantime.
+   */
+  async confirmEmailChange(userId: string, otp: string): Promise<User> {
+    const user = await this.findLiveById(userId);
+    if (!user.pendingEmail) {
+      throw new BadRequestException(INVALID_OTP);
+    }
+    const otpId = await this.checkOtp(user, OtpPurpose.EMAIL_CHANGE, otp);
+    const oldEmail = user.email;
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await this.markOtpUsed(manager, otpId);
+        await manager.getRepository(User).update(user.id, {
+          email: user.pendingEmail!,
+          pendingEmail: null,
+          emailVerifiedAt: new Date(),
+        });
+      });
+    } catch (err) {
+      if (isPgError(err, PG_UNIQUE_VIOLATION, 'users_email_uk')) {
+        throw new ConflictException('Email address is already in use');
+      }
+      throw err;
+    }
+    this.logger.log(`Email changed: user=${user.id}`);
+    this.mailService.sendEmailChanged(oldEmail).catch(() => undefined);
+    return this.findLiveById(user.id);
+  }
+
+  /**
+   * Checks the caller's current password for a sensitive self-service action.
+   * Accounts without a password (Google only) are already re-authenticated by
+   * their JWT and pass.
+   */
+  async assertPassword(user: User, password: string | undefined): Promise<void> {
+    if (!user.passwordHash) return;
+    if (!password || !(await bcrypt.compare(password, user.passwordHash))) {
+      this.logger.warn(`Password confirmation failed: user=${user.id}`);
+      throw new UnauthorizedException('Password is incorrect');
+    }
   }
 
   toAuthUser(user: User): AuthUser {
@@ -456,8 +530,21 @@ export class AuthService {
     return (
       !!user.emailVerifiedAt &&
       user.isActive &&
+      !user.deletedAt &&
       user.adminRequestStatus !== AdminRequestStatus.PENDING
     );
+  }
+
+  /** Deleted accounts behave exactly like unknown ones on the public routes. */
+  private async findLiveByEmail(email: string): Promise<User | null> {
+    const user = await this.usersRepository.findOneBy({ email });
+    return user && !user.deletedAt ? user : null;
+  }
+
+  private async findLiveById(userId: string): Promise<User> {
+    const user = await this.usersRepository.findOneBy({ id: userId });
+    if (!user || user.deletedAt) throw new UnauthorizedException();
+    return user;
   }
 
   private async handleUnusableRefresh(tokenHash: string): Promise<void> {
@@ -484,15 +571,20 @@ export class AuthService {
     user: User,
     meta: SessionMeta,
   ) {
+    // The refresh token's id doubles as the session id (`sid`), so GET
+    // /users/me/sessions can mark the caller's own session.
+    const sessionId = randomUUID();
     // No email in the payload: a JWT is readable by anyone holding it.
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       role: user.role.name as UserRole,
+      sid: sessionId,
     });
     const refreshToken = randomUUID() + randomUUID();
     const tokens = manager.getRepository(RefreshToken);
     const saved = await tokens.save(
       tokens.create({
+        id: sessionId,
         userId: user.id,
         tokenHash: this.hashToken(refreshToken),
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
@@ -509,7 +601,11 @@ export class AuthService {
     };
   }
 
-  private async issueOtp(user: User, purpose: OtpPurpose): Promise<void> {
+  private async issueOtp(
+    user: User,
+    purpose: OtpPurpose,
+    recipient: string = user.email,
+  ): Promise<void> {
     // Resend cooldown: a code sent less than a minute ago is still live, so
     // don't mail another. Callers return the same generic message either way.
     const live = await this.userOtpsRepository.findOne({
@@ -553,8 +649,8 @@ export class AuthService {
     // ask for a new code after the cooldown.
     this.mailService
       .sendOtp(
-        user.email,
-        purpose === OtpPurpose.EMAIL_VERIFY ? 'EMAIL_VERIFY' : 'PASSWORD_RESET',
+        recipient,
+        purpose as 'EMAIL_VERIFY' | 'PASSWORD_RESET' | 'EMAIL_CHANGE',
         otp,
       )
       .catch(() => undefined);
@@ -704,6 +800,9 @@ export class AuthService {
     }
     if (!user) {
       throw new Error('Google user could not be resolved');
+    }
+    if (user.deletedAt || !user.isActive) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     return this.issueToken(user);
   }

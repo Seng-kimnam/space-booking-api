@@ -6,14 +6,12 @@ import type { BookingPolicy } from '../places/entities/booking-policy.entity';
 
 /**
  * Dependencies the bookings module needs from modules owned by teammates
- * (docs/project-structure.md section 2). Injected by token so this module
- * compiles and is unit-testable before they exist. Wiring, once they merge
- * (bookings.module.ts):
- *   imports:   [SeatsModule, PlacesModule, UsersModule, MessagingModule]
- *   providers: { provide: SEAT_LOOKUP,     useExisting: SeatsService },
- *              { provide: PLACE_RULES,     useExisting: <places service implementing PlaceRulesPort> },
- *              { provide: NO_SHOW_COUNTER, useExisting: UsersService },
- *              { provide: OUTBOX,          useExisting: OutboxService }
+ * (docs/project-structure.md section 2), injected by token so services are
+ * unit-testable with fakes. Bindings (bookings.module.ts unless noted):
+ *   SEAT_LOOKUP     -> SeatsService
+ *   PLACE_RULES     -> PlaceRulesService
+ *   NO_SHOW_COUNTER -> UsersService
+ *   OUTBOX          -> OutboxService (global MessagingModule)
  * Every method that takes a `manager` must run on it, to join the caller's transaction.
  */
 
