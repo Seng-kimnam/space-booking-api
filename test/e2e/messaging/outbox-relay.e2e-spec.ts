@@ -97,6 +97,7 @@ describe('Outbox relay (e2e)', () => {
       status: 'PENDING',
       previousStartAt: null,
       previousEndAt: null,
+      cancelReason: null,
       external: null,
     });
   });

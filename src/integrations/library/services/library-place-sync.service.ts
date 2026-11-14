@@ -335,11 +335,22 @@ export class LibraryPlaceSyncService {
     const byExternal = new Map(existing.map((row) => [row.externalId!, row]));
     const wantedById = new Map(wanted.map((w) => [w.externalId, w.values]));
 
+    // Soft-delete rows LMS no longer sends before touching any label: deleted
+    // rows leave the partial unique index, so a new row may reuse the label,
+    // and history keeps the real label instead of a temporary one.
+    const removed = existing.filter((row) => !row.deletedAt && !wantedById.has(row.externalId!));
+    if (removed.length > 0) {
+      await repo.softDelete(removed.map((row) => row.id));
+      for (const row of removed) row.deletedAt = new Date();
+    }
+
     let n = 0;
     for (const row of existing) {
       if (row.deletedAt) continue;
       const next = wantedById.get(row.externalId!);
-      if (!next || next[uniqueField] !== row[uniqueField]) {
+      // Rows that stay but change name/label move aside first, so swaps don't
+      // collide with the unique index mid-update. Removed rows are already gone.
+      if (next && next[uniqueField] !== row[uniqueField]) {
         const temp: Record<string, unknown> = { [uniqueField]: `${TEMP_PREFIX}${n++}` };
         await repo.update(row.id, temp as Update);
       }

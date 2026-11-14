@@ -79,7 +79,9 @@ export class ExternalIdentitiesService {
       .set({ usedAt: () => 'now()' })
       .where('code_hash = :hash AND external_system = :system', { hash: sha256(code), system })
       .andWhere('used_at IS NULL AND expires_at > now()')
-      .returning(['external_user_id', 'client_id'])
+      // Property paths, not column names: TypeORM resolves them to the entity
+      // columns for RETURNING and the raw rows still come back snake_case.
+      .returning(['externalUserId', 'clientId'])
       .execute();
     const row = (result.raw as { external_user_id: string; client_id: string | null }[])[0];
     return row ? { externalUserId: row.external_user_id, clientId: row.client_id } : null;
