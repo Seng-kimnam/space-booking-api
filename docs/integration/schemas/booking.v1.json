@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/booking.v1.json",
+  "title": "booking.* data v1 (Space Booking -> partners)",
+  "description": "data of booking.created, booking.modified, booking.extended, booking.cancelled, booking.checked_in, booking.checked_out, booking.expired, booking.checkout_overdue. Ids are Space Booking ids; partner ids are in external. userId must not be stored by partners.",
+  "type": "object",
+  "required": [
+    "bookingId",
+    "groupId",
+    "userId",
+    "seatId",
+    "placeId",
+    "source",
+    "status",
+    "startAt",
+    "endAt",
+    "previousStartAt",
+    "previousEndAt",
+    "actor",
+    "cancelReason",
+    "occurredAt",
+    "external"
+  ],
+  "properties": {
+    "bookingId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "groupId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Shared by the seats of one multi-seat booking"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seatId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "placeId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source": {
+      "enum": [
+        "APP",
+        "API_CLIENT",
+        "ADMIN"
+      ]
+    },
+    "status": {
+      "enum": [
+        "PENDING",
+        "CHECKED_IN",
+        "CHECKOUT_OVERDUE",
+        "COMPLETED",
+        "CANCELLED",
+        "EXPIRED"
+      ],
+      "description": "Status after the change"
+    },
+    "startAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "endAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "previousStartAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "booking.modified / booking.extended only, else null"
+    },
+    "previousEndAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "booking.modified / booking.extended only, else null"
+    },
+    "actor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "userId"
+          ],
+          "properties": {
+            "userId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "system"
+          ],
+          "properties": {
+            "system": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "cancelReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "USER_CANCELLED",
+            "ADMIN_CANCELLED",
+            "LIBRARY_PLACE_CHANGED"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "booking.cancelled only, else null. Machine code; user free text is never sent."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "external": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Partner ids when the place is partner-managed, otherwise null. memberId stays null until account linking (phase 2).",
+      "required": [
+        "system",
+        "placeId",
+        "seatId",
+        "memberId"
+      ],
+      "properties": {
+        "system": {
+          "const": "library"
+        },
+        "placeId": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z_-]{1,64}$"
+        },
+        "seatId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z_-]{1,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memberId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z_-]{1,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

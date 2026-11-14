@@ -11,7 +11,7 @@ export interface HealthResponse {
 @ApiTags('Health')
 @Controller()
 export class AppController {
-  @Get('health')
+  @Get('health/check')
   @ApiOkResponse({ description: 'The API is up and running.' })
   getHealth(): HealthResponse {
     return {

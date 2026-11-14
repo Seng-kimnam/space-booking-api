@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/place.sync_rejected.v1.json",
+  "title": "place.sync_rejected data v1 (Space Booking -> LMS)",
+  "description": "A valid message whose data we can not apply. Our state stays at the last applied revision. LMS fixes the data and sends a new revision. subject.id is the LMS placeId.",
+  "type": "object",
+  "required": [
+    "placeId",
+    "revision",
+    "code",
+    "message",
+    "details"
+  ],
+  "properties": {
+    "placeId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,64}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "code": {
+      "enum": [
+        "INVALID_TIMEZONE",
+        "INVALID_OPENING_HOURS",
+        "INVALID_CLOSURES",
+        "SEAT_LABEL_CONFLICT",
+        "AREA_NAME_CONFLICT",
+        "DUPLICATE_ID",
+        "UNKNOWN_AREA",
+        "LIMIT_EXCEEDED",
+        "OTHER"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "details": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "value"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "e.g. seats[4].label"
+          },
+          "value": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

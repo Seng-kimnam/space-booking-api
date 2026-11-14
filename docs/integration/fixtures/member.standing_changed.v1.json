@@ -1,0 +1,34 @@
+{
+  "routingKey": "member.standing_changed",
+  "properties": {
+    "message_id": "66666666-6666-4666-8666-666666666666",
+    "type": "member.standing_changed",
+    "app_id": "library",
+    "user_id": "library",
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "66666666-6666-4666-8666-666666666666",
+    "type": "member.standing_changed",
+    "version": 1,
+    "source": "library",
+    "occurredAt": "2026-11-09T10:15:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "member",
+      "id": "member-1"
+    },
+    "data": {
+      "memberId": "member-1",
+      "eligible": true,
+      "reasons": [],
+      "accountStatus": "ACTIVE",
+      "membershipStatus": "ACTIVE",
+      "expiryDate": null,
+      "blockedUntil": null,
+      "evaluatedAt": "2026-11-09T10:15:00.000Z"
+    }
+  }
+}

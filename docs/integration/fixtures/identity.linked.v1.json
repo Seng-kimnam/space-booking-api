@@ -1,0 +1,30 @@
+{
+  "routingKey": "identity.linked",
+  "properties": {
+    "message_id": "44444444-4444-4444-8444-444444444444",
+    "type": "identity.linked",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "type": "identity.linked",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-09T10:15:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "member",
+      "id": "member-1"
+    },
+    "data": {
+      "system": "library",
+      "memberId": "member-1",
+      "linked": true,
+      "changedAt": "2026-11-09T10:15:00.000Z"
+    }
+  }
+}
