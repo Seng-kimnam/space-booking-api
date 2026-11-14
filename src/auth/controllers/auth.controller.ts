@@ -38,6 +38,8 @@ import { RolesInterceptor } from '../interceptors/roles.interceptor';
 import { UserRole } from '../../users/entities/user.entity';
 import { GoogleAuthGuard } from '../guards/google-auth.guard';
 import { GoogleProfile } from '../strategies/google.strategy';
+import { FacebookAuthGuard } from '../guards/facebook-auth.guard';
+import { FacebookProfile } from '../strategies/facebook.strategy';
 
 type JwtUser = {
   sub: string;
@@ -195,5 +197,31 @@ export class AuthController {
   @ApiExcludeEndpoint()
   googleCallback(@Req() req: { user: GoogleProfile }) {
     return this.authService.loginWithGoogle(req.user);
+  }
+
+  // Step 1: redirects the browser to Facebook's consent screen
+  @Get('facebook')
+  @ApiExcludeEndpoint()
+  @UseGuards(FacebookAuthGuard)
+  // Below UseGuards on purpose: decorators apply bottom-up, so the
+  // throttler is registered (and runs) before the Facebook guard.
+  @AuthThrottle(LOGIN_LIMITS)
+  facebookLogin() {
+    return { message: 'Redirecting to Facebook for authentication...' };
+  }
+
+  // Step 2: Facebook redirects back here with a code
+  @Get('facebook/callback')
+  @ApiExcludeEndpoint()
+  @UseGuards(FacebookAuthGuard)
+  // Below UseGuards on purpose: decorators apply bottom-up, so the
+  // throttler is registered (and runs) before the Facebook guard.
+  @AuthThrottle(LOGIN_LIMITS)
+  facebookCallback(
+    @Req() req: { user: FacebookProfile },
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.loginWithFacebook(req.user, { ip, userAgent });
   }
 }
