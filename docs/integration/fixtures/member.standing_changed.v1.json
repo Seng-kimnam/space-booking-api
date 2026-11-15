@@ -1,0 +1,41 @@
+{
+  "routingKey": "member.standing_changed",
+  "properties": {
+    "message_id": "b09e6f9d-1b5e-4fbf-8a6c-3a2e1d8c0f2b",
+    "type": "member.standing_changed",
+    "app_id": "library",
+    "user_id": "library",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1795219205,
+    "correlation_id": null,
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "b09e6f9d-1b5e-4fbf-8a6c-3a2e1d8c0f2b",
+    "type": "member.standing_changed",
+    "version": 1,
+    "source": "library",
+    "occurredAt": "2026-11-21T00:00:05.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "member",
+      "id": "88"
+    },
+    "data": {
+      "memberId": "88",
+      "eligible": false,
+      "reasons": [
+        "OVERDUE_ITEMS"
+      ],
+      "accountStatus": "ACTIVE",
+      "membershipStatus": "ACTIVE",
+      "expiryDate": "2027-03-01",
+      "blockedUntil": null,
+      "evaluatedAt": "2026-11-21T00:00:05.000Z"
+    }
+  }
+}

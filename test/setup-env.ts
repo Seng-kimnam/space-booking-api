@@ -18,7 +18,8 @@ const defaults: Record<string, string> = {
   DB_HOST: '127.0.0.1',
   DB_PORT: '5432',
   DB_USERNAME: 'postgres',
-  DB_PASSWORD: 'postgres',
+  // No password in the repo: set DB_PASSWORD in .env locally; CI uses trust auth.
+  DB_PASSWORD: '',
   DB_NAME: 'space_booking_db_test',
   JWT_SECRET: 'e2e-only-jwt-secret-not-for-production-use',
   // Empty = RabbitMQ disabled: the outbox relay and consumers stay idle.

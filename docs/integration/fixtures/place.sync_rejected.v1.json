@@ -1,0 +1,41 @@
+{
+  "routingKey": "place.sync_rejected",
+  "properties": {
+    "message_id": "7c5a2b5f-d17a-4b7b-8c28-9c8a7f4e6b87",
+    "type": "place.sync_rejected",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794215101,
+    "correlation_id": null,
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "7c5a2b5f-d17a-4b7b-8c28-9c8a7f4e6b87",
+    "type": "place.sync_rejected",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-09T09:05:01.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "place",
+      "id": "1"
+    },
+    "data": {
+      "placeId": "1",
+      "revision": 43,
+      "code": "SEAT_LABEL_CONFLICT",
+      "message": "Seat label RR-12 is used twice",
+      "details": [
+        {
+          "path": "seats[4].label",
+          "value": "RR-12"
+        }
+      ]
+    }
+  }
+}

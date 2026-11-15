@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/envelope.v1.json",
+  "title": "Message envelope v1 (every event, every producer)",
+  "description": "docs/integration/messaging-contract.md section 3.2. AMQP properties: message_id = id, type = type, app_id = user_id = source, header x-schema-version = version.",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "version",
+    "source",
+    "occurredAt",
+    "correlationId",
+    "subject",
+    "data"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Same as AMQP message_id; the dedupe key"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z_]+\\.[a-z_]+$",
+      "description": "Routing key without the .vN suffix"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source": {
+      "enum": [
+        "space-booking",
+        "library"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlationId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}

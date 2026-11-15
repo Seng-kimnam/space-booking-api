@@ -1,0 +1,134 @@
+{
+  "routingKey": "place.created",
+  "properties": {
+    "message_id": "9e7c4d7b-f39c-4d9d-8e4a-1e0c9b6a8d09",
+    "type": "place.created",
+    "app_id": "library",
+    "user_id": "library",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794211200,
+    "correlation_id": "lms-trace-0001",
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "9e7c4d7b-f39c-4d9d-8e4a-1e0c9b6a8d09",
+    "type": "place.created",
+    "version": 1,
+    "source": "library",
+    "occurredAt": "2026-11-09T08:00:00.000Z",
+    "correlationId": "lms-trace-0001",
+    "subject": {
+      "type": "place",
+      "id": "1"
+    },
+    "data": {
+      "placeId": "1",
+      "code": "MAIN",
+      "revision": 1,
+      "name": "LibraFlow Main Library",
+      "description": null,
+      "address": "Street 1, Phnom Penh",
+      "lat": 11.5564,
+      "lng": 104.9282,
+      "timezone": "Asia/Phnom_Penh",
+      "status": "ACTIVE",
+      "bookingEnabled": true,
+      "openingHours": [
+        {
+          "weekday": 1,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 2,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 3,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 4,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 5,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 6,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        }
+      ],
+      "closures": [
+        {
+          "date": "2026-12-25",
+          "reason": "Public holiday"
+        }
+      ],
+      "areas": [
+        {
+          "areaId": "3",
+          "name": "Reading Room",
+          "floor": "2",
+          "type": "READING_ROOM",
+          "description": null,
+          "status": "ACTIVE"
+        },
+        {
+          "areaId": "4",
+          "name": "Quiet Zone",
+          "floor": "3",
+          "type": "QUIET_ZONE",
+          "description": "No phones",
+          "status": "ACTIVE"
+        }
+      ],
+      "seats": [
+        {
+          "seatId": "57",
+          "areaId": "3",
+          "label": "RR-12",
+          "features": {
+            "power": true,
+            "window": false
+          },
+          "status": "ACTIVE"
+        },
+        {
+          "seatId": "58",
+          "areaId": "3",
+          "label": "RR-13",
+          "features": {
+            "power": true
+          },
+          "status": "MAINTENANCE"
+        },
+        {
+          "seatId": "71",
+          "areaId": "4",
+          "label": "QZ-01",
+          "features": {
+            "desk": "large"
+          },
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  }
+}

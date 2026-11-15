@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/identity.v1.json",
+  "title": "identity.linked / identity.unlinked data v1 (Space Booking -> LMS)",
+  "description": "No Space Booking user id, email or name is ever sent.",
+  "type": "object",
+  "required": [
+    "system",
+    "memberId",
+    "linked",
+    "changedAt"
+  ],
+  "properties": {
+    "system": {
+      "const": "library"
+    },
+    "memberId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,64}$"
+    },
+    "linked": {
+      "type": "boolean"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
