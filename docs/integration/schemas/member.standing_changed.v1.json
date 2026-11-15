@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/member.standing_changed.v1.json",
+  "title": "member.standing_changed data v1 (LMS -> Space Booking)",
+  "type": "object",
+  "required": [
+    "memberId",
+    "eligible",
+    "reasons",
+    "accountStatus",
+    "membershipStatus",
+    "expiryDate",
+    "blockedUntil",
+    "evaluatedAt"
+  ],
+  "properties": {
+    "memberId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,64}$"
+    },
+    "eligible": {
+      "type": "boolean"
+    },
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "ACCOUNT_DISABLED",
+          "MEMBERSHIP_PENDING_DEPOSIT",
+          "MEMBERSHIP_EXPIRED",
+          "OVERDUE_ITEMS",
+          "BLOCKED_UNTIL"
+        ]
+      }
+    },
+    "accountStatus": {
+      "enum": [
+        "ACTIVE",
+        "DISABLED"
+      ]
+    },
+    "membershipStatus": {
+      "enum": [
+        "PENDING_DEPOSIT",
+        "ACTIVE",
+        "EXPIRED"
+      ]
+    },
+    "expiryDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "blockedUntil": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "evaluatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
