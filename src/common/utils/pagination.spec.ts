@@ -22,9 +22,15 @@ const spec: SortSpec<Field> = {
 };
 
 /** Records orderBy / addOrderBy calls in order. */
-function fakeQb() {
+interface FakeQb {
+  calls: Array<[string, string]>;
+  orderBy: jest.Mock<FakeQb, [string, string]>;
+  addOrderBy: jest.Mock<FakeQb, [string, string]>;
+}
+
+function fakeQb(): FakeQb {
   const calls: Array<[string, string]> = [];
-  const qb = {
+  const qb: FakeQb = {
     calls,
     orderBy: jest.fn((col: string, dir: string) => {
       calls.length = 0;

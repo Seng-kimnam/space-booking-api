@@ -7,10 +7,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  UseGuards,
-  UseInterceptors,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -25,10 +21,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthGuard } from '../../auth/guards/auth.guard';
-import { Roles } from '../../auth/decorators/role.decorator';
-import { RolesInterceptor } from '../../auth/interceptors/roles.interceptor';
 import { UserRole } from '../../common/enums';
+import { Secured } from '../../common/decorators/secured.decorator';
 import { PlacesService } from '../services/places.service';
 import { CreatePlaceDto } from '../dto/create-place.dto';
 import { UpdatePlaceDto } from '../dto/update-place.dto';
@@ -41,16 +35,7 @@ import { MessageType } from '../../messaging/contract/schemas';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()
-@UseGuards(AuthGuard)
-@UseInterceptors(RolesInterceptor)
-@Roles(UserRole.ADMIN)
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
+@Secured(UserRole.ADMIN)
 @Controller('admin/places')
 export class AdminPlacesController {
   constructor(private readonly places: PlacesService) {}

@@ -4,8 +4,6 @@ import {
   ExecutionContext,
   SetMetadata,
   UseGuards,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiForbiddenResponse,
@@ -30,7 +28,6 @@ export const ClientSecured = (...scopes: ApiClientScope[]) =>
     ApiSecurity(API_KEY_SECURITY),
     ApiUnauthorizedResponse({ description: 'Missing or invalid X-API-Key' }),
     ApiForbiddenResponse({ description: `Requires scope(s): ${scopes.join(', ')}` }),
-    UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })),
   );
 
 /** The authenticated system on a @ClientSecured route. */

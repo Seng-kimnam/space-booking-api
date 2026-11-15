@@ -19,11 +19,8 @@ import {
 } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
-import {
-  AdminRequestStatus,
-  User,
-  UserRole,
-} from '../../users/entities/user.entity';
+import { AdminRequestStatus, User } from '../../users/entities/user.entity';
+import { UserRole } from '../../common/enums';
 import { Role } from '../../roles/entities/role.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserOtp } from '../../users/entities/user-otp.entity';

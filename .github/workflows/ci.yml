@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   test:
@@ -12,31 +12,48 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Same major version as infrastructure/docker (production uses 17).
+        image: postgres:17-alpine
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: testdb
+          POSTGRES_USER: sb_test
+          POSTGRES_PASSWORD: sb_test
+          POSTGRES_DB: space_booking_db_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U test"
+          --health-cmd "pg_isready -U sb_test -d space_booking_db_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
+    # The app reads DB_* (src/configuration/database.config.ts), not DATABASE_URL.
+    # e2e requires a *_test database (test/setup-env.ts).
     env:
-      DATABASE_URL: postgresql://test:test@localhost:5432/testdb
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: sb_test
+      DB_PASSWORD: sb_test
+      DB_NAME: space_booking_db_test
+      JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+      # Empty = RabbitMQ disabled (outbox rows just stay unpublished).
+      RABBITMQ_URL: ''
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # package.json engines: >=24.9 (Jest needs require(esm)).
+          node-version: 24
           cache: npm
 
       - run: npm ci
       - run: npm run lint
-      - run: npm test
       - run: npm run build
+      - run: npm test
+      - name: Migrate test database
+        run: npm run migration:run
+      - name: E2E tests
+        # In band: the suites share one database.
+        run: npm run test:e2e -- --runInBand

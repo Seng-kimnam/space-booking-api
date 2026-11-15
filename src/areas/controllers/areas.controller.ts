@@ -4,8 +4,6 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -20,13 +18,6 @@ import { AreasService } from '../services/areas.service';
 // Per-controller pipe because there is no global one yet; drop it when one is added.
 // shortcut: Client `places:read` access (api-clients module) isn't wired yet; this is public.
 @ApiTags('Areas')
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
 @Controller()
 export class AreasController {
   constructor(private readonly areas: AreasService) {}

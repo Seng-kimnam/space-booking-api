@@ -7,8 +7,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -23,10 +21,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthGuard } from '../../auth/guards/auth.guard';
-import { Roles } from '../../auth/decorators/role.decorator';
-import { RolesInterceptor } from '../../auth/interceptors/roles.interceptor';
 import { UserRole } from '../../common/enums';
+import { Secured } from '../../common/decorators/secured.decorator';
 import { SeatsService } from '../services/seats.service';
 import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
@@ -37,9 +33,7 @@ import { SeatResponseDto, toSeatResponse } from '../dto/seat.response.dto';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()
-@UseGuards(AuthGuard)
-@UseInterceptors(RolesInterceptor)
-@Roles(UserRole.ADMIN)
+@Secured(UserRole.ADMIN)
 @Controller('admin')
 export class AdminSeatsController {
   constructor(private readonly seats: SeatsService) {}
