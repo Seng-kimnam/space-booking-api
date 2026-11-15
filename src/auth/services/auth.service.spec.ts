@@ -1,5 +1,6 @@
 import * as bcrypt from 'bcrypt';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -20,6 +21,8 @@ import {
 } from './auth.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserOtp } from '../../users/entities/user-otp.entity';
+import { AuthIdentity } from '../entities/auth-identity.entity';
+import { AuthProvider } from '../../common/enums';
 import {
   AdminRequestStatus,
   User,
@@ -119,10 +122,17 @@ function build(opts: { otpQueue?: unknown[][]; tokenQueue?: unknown[][] } = {}) 
     sendPasswordChanged: jest.fn().mockResolvedValue(undefined),
     sendEmailChanged: jest.fn().mockResolvedValue(undefined),
   };
+  const identities = {
+    findOneBy: jest.fn().mockResolvedValue(null),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+    create: jest.fn((v) => v),
+    save: jest.fn(async (v) => ({ ...v, id: 'new-identity-id' })),
+  };
   const repoFor = new Map<unknown, unknown>([
     [User, users],
     [RefreshToken, refreshTokens],
     [UserOtp, otps],
+    [AuthIdentity, identities],
   ]);
   const manager = { getRepository: (entity: unknown) => repoFor.get(entity) };
   const dataSource = {
@@ -138,7 +148,7 @@ function build(opts: { otpQueue?: unknown[][]; tokenQueue?: unknown[][] } = {}) 
     mail as never,
     dataSource as never,
   );
-  return { service, users, refreshTokens, otps, jwt, mail, dataSource };
+  return { service, users, refreshTokens, otps, identities, jwt, mail, dataSource };
 }
 
 describe('AuthService', () => {
@@ -746,6 +756,106 @@ describe('AuthService', () => {
       await expect(service.confirmEmailChange('user-id', code)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('loginWithFacebook', () => {
+    const fb = {
+      facebookId: 'fb-123',
+      email: 'fb@example.com',
+      name: 'FB User',
+      avatarUrl: null,
+    };
+    const linked = { id: 'identity-id', userId: 'user-id' };
+
+    it('signs in a linked account by Facebook id and records last login', async () => {
+      const { service, users, identities, refreshTokens } = build();
+      identities.findOneBy.mockResolvedValue(linked);
+      users.findOneBy.mockResolvedValue(makeUser({ passwordHash: null }));
+
+      const result = await service.loginWithFacebook(fb, { ip: '10.0.0.1' });
+
+      expect(identities.findOneBy).toHaveBeenCalledWith({
+        provider: AuthProvider.FACEBOOK,
+        providerUserId: 'fb-123',
+      });
+      // Matched on the identity's user id, never on the Facebook email.
+      expect(users.findOneBy).toHaveBeenCalledWith({ id: 'user-id' });
+      expect(identities.update).toHaveBeenCalledWith('identity-id', {
+        lastLoginAt: expect.any(Date),
+      });
+      expect(refreshTokens.save).toHaveBeenCalled();
+      expect(Object.keys(result).sort()).toEqual(['accessToken', 'refreshToken', 'user']);
+    });
+
+    it.each([
+      ['unverified', { emailVerifiedAt: null }, UnauthorizedException],
+      ['suspended', { isActive: false }, ForbiddenException],
+      [
+        'waiting for admin approval',
+        { adminRequestStatus: AdminRequestStatus.PENDING },
+        ForbiddenException,
+      ],
+      ['deleted', { deletedAt: new Date() }, UnauthorizedException],
+    ])('refuses a %s linked account', async (_, overrides, error) => {
+      const { service, users, identities, refreshTokens } = build();
+      identities.findOneBy.mockResolvedValue(linked);
+      users.findOneBy.mockResolvedValue(makeUser(overrides as Partial<User>));
+
+      await expect(service.loginWithFacebook(fb)).rejects.toBeInstanceOf(error);
+      expect(refreshTokens.save).not.toHaveBeenCalled();
+    });
+
+    it('creates an unverified USER with a Facebook identity and mails an OTP, without tokens', async () => {
+      const { service, users, identities, refreshTokens, mail } = build();
+
+      const result = await service.loginWithFacebook(fb);
+
+      expect(result).toEqual({ message: expect.any(String) });
+      expect(users.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'fb@example.com',
+          passwordHash: null,
+          emailVerifiedAt: null,
+          role: roles[UserRole.USER],
+        }),
+      );
+      expect(identities.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'new-user-id',
+          provider: AuthProvider.FACEBOOK,
+          providerUserId: 'fb-123',
+          emailVerified: false,
+        }),
+      );
+      expect(mail.sendOtp).toHaveBeenCalledWith('fb@example.com', 'EMAIL_VERIFY', expect.any(String));
+      expect(refreshTokens.save).not.toHaveBeenCalled();
+    });
+
+    it('never auto-links to an existing account with the same email (409)', async () => {
+      const { service, users, identities } = build();
+      users.findOneBy.mockResolvedValue(makeUser({ email: 'fb@example.com' }));
+
+      await expect(service.loginWithFacebook(fb)).rejects.toBeInstanceOf(ConflictException);
+      expect(identities.save).not.toHaveBeenCalled();
+    });
+
+    it('is 400 when Facebook shared no email', async () => {
+      const { service, users } = build();
+
+      await expect(
+        service.loginWithFacebook({ ...fb, email: null }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(users.save).not.toHaveBeenCalled();
+    });
+
+    it('is 409 when a concurrent sign-up created the same Facebook identity', async () => {
+      const { service, identities } = build();
+      identities.save.mockRejectedValueOnce(
+        dbError('23505', 'auth_identities_provider_account_uk'),
+      );
+
+      await expect(service.loginWithFacebook(fb)).rejects.toBeInstanceOf(ConflictException);
     });
   });
 });

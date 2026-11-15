@@ -12,7 +12,19 @@ import { EntityManager, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { isDeepStrictEqual } from 'node:util';
 import { Seat } from '../entities/seat.entity';
-import { PlaceSeatQueryDto, SeatQueryDto } from '../dto/seat-query.dto';
+import {
+  PlaceSeatQueryDto,
+  SeatQueryDto,
+  type SeatSortField,
+} from '../dto/seat-query.dto';
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  escapeLike,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
 import { SeatStatus } from '../../common/enums';
 import { CreateSeatDto } from '../dto/create-seat.dto';
 import { UpdateSeatDto } from '../dto/update-seat.dto';
@@ -35,6 +47,16 @@ const PLACE_BOOKABLE =
   'EXISTS (SELECT 1 FROM places p WHERE p.id = seat.place_id AND p.deleted_at IS NULL AND p.is_active AND p.external_open IS NOT FALSE)';
 
 const AREA_MISMATCH = 'areaId does not belong to this place';
+
+// By label within each place (GET /seats spans places), as before.
+const SEAT_SORT: SortSpec<SeatSortField> = {
+  columns: {
+    label: ['seat.placeId', 'seat.label'],
+    createdAt: 'seat.createdAt',
+  },
+  default: { sortBy: 'label', order: SortOrder.ASC },
+  tieBreaker: 'seat.id',
+};
 
 const PG_FOREIGN_KEY_VIOLATION = '23503'; // not in common/utils/db-errors.ts yet
 
@@ -283,18 +305,14 @@ export class SeatsService {
       qb.andWhere('seat.areaId = :areaId', { areaId: query.areaId });
     if (query.status)
       qb.andWhere('seat.status = :status', { status: query.status });
-    const [rows, total] = await qb
-      .orderBy('seat.placeId')
-      .addOrderBy('seat.label')
-      .addOrderBy('seat.id')
-      .skip((query.page - 1) * query.limit)
+    if (query.search)
+      qb.andWhere('seat.label ILIKE :search', {
+        search: `%${escapeLike(query.search)}%`,
+      });
+    const [rows, total] = await applySort(qb, query, SEAT_SORT)
+      .skip(pageOffset(query))
       .take(query.limit)
       .getManyAndCount();
-    return {
-      items: rows.map(toSeatResponse),
-      page: query.page,
-      limit: query.limit,
-      total,
-    };
+    return toPageResponse(query, rows, total, toSeatResponse);
   }
 }

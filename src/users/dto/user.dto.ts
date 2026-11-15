@@ -13,7 +13,8 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import { UserRole } from '../../common/enums';
 import { AdminRequestStatus, User } from '../entities/user.entity';
 import type {
@@ -127,7 +128,10 @@ export class ChangeRoleDto {
   role: AssignableRole;
 }
 
-export class ListUsersQueryDto extends PaginationQueryDto {
+export const USER_SORT_FIELDS = ['createdAt', 'name', 'email'] as const;
+export type UserSortField = (typeof USER_SORT_FIELDS)[number];
+
+export class ListUsersQueryDto extends SortablePaginationQueryDto(USER_SORT_FIELDS, 'createdAt') {
   @ApiPropertyOptional({ enum: UserRole })
   @IsOptional()
   @IsIn(Object.values(UserRole))
@@ -204,12 +208,7 @@ export class UserResponseDto {
   deletedAt: string | null;
 }
 
-export class UserPageResponseDto {
-  @ApiProperty({ type: [UserResponseDto] }) items: UserResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class UserPageResponseDto extends PageResponseDto(UserResponseDto) {}
 
 export class FavouritePlaceDto {
   @ApiProperty({ format: 'uuid' }) id: string;
@@ -277,12 +276,7 @@ export class NotificationResponseDto {
   @ApiProperty({ format: 'date-time' }) createdAt: string;
 }
 
-export class NotificationPageResponseDto {
-  @ApiProperty({ type: [NotificationResponseDto] }) items: NotificationResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class NotificationPageResponseDto extends PageResponseDto(NotificationResponseDto) {}
 
 export class ActivityItemDto {
   @ApiProperty({ format: 'uuid' }) id: string;
@@ -296,12 +290,7 @@ export class ActivityItemDto {
   @ApiProperty({ format: 'date-time' }) createdAt: string;
 }
 
-export class ActivityPageResponseDto {
-  @ApiProperty({ type: [ActivityItemDto] }) items: ActivityItemDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class ActivityPageResponseDto extends PageResponseDto(ActivityItemDto) {}
 
 class RoleCountDto {
   @ApiProperty({ enum: UserRole }) role: string;

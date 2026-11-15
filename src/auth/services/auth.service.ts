@@ -31,6 +31,9 @@ import { OtpPurpose } from '../../common/enums/index';
 import { MailService } from './mail.service';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
 import { GoogleProfile } from '../strategies/google.strategy';
+import { FacebookProfile } from '../strategies/facebook.strategy';
+import { AuthIdentity } from '../entities/auth-identity.entity';
+import { AuthProvider } from '../../common/enums';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -805,6 +808,125 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     return this.issueToken(user);
+  }
+
+  /**
+   * Facebook sign-in. The account link lives in auth_identities, matched on
+   * the Facebook user id, never on email (AGENTS.md section 6.13). Facebook
+   * emails count as unverified (docs/erd.md), so an existing account is never
+   * auto-linked, and a new account verifies its email by OTP before it gets
+   * tokens. Returns the same session as /auth/login.
+   */
+  async loginWithFacebook(
+    profile: FacebookProfile,
+    meta: SessionMeta = {},
+  ): Promise<Awaited<ReturnType<AuthService['login']>> | { message: string }> {
+    const identities = this.dataSource.manager.getRepository(AuthIdentity);
+    const identity = await identities.findOneBy({
+      provider: AuthProvider.FACEBOOK,
+      providerUserId: profile.facebookId,
+    });
+
+    if (!identity) {
+      return this.signUpWithFacebook(profile);
+    }
+
+    const user = await this.usersRepository.findOneBy({ id: identity.userId });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Facebook sign-in failed');
+    }
+    // Same checks as a password login.
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException('Email address is not verified');
+    }
+    if (!user.isActive) {
+      this.logger.warn(`Facebook login refused, account suspended: user=${user.id}`);
+      throw new ForbiddenException('Account is suspended');
+    }
+    if (user.adminRequestStatus === AdminRequestStatus.PENDING) {
+      throw new ForbiddenException('Admin registration is awaiting approval');
+    }
+
+    const { session } = await this.dataSource.transaction(async (manager) => {
+      await manager
+        .getRepository(AuthIdentity)
+        .update(identity.id, { lastLoginAt: new Date() });
+      return this.issueSession(manager, user, meta);
+    });
+    this.logger.log(`Facebook login succeeded: user=${user.id}`);
+    return session;
+  }
+
+  /** First Facebook sign-in: creates an unverified USER and mails an OTP. */
+  private async signUpWithFacebook(
+    profile: FacebookProfile,
+  ): Promise<{ message: string }> {
+    if (!profile.email) {
+      throw new BadRequestException(
+        'Facebook did not share an email address. Allow email access, or register with email and password.',
+      );
+    }
+    const existing = await this.usersRepository.findOneBy({
+      email: profile.email,
+    });
+    if (existing) {
+      // No auto-link: Facebook emails are not treated as verified.
+      throw new ConflictException(
+        'An account with this email already exists. Sign in with your password instead.',
+      );
+    }
+    const role = await this.rolesRepository.findOneBy({ name: UserRole.USER });
+    if (!role) {
+      throw new ConflictException('User role is not configured');
+    }
+
+    let user: User;
+    try {
+      user = await this.dataSource.transaction(async (manager) => {
+        const users = manager.getRepository(User);
+        // Social sign-up only ever creates a USER (AGENTS.md section 6.13).
+        const created = await users.save(
+          users.create({
+            email: profile.email!,
+            passwordHash: null,
+            name: profile.name,
+            avatarUrl: profile.avatarUrl,
+            role,
+            emailVerifiedAt: null,
+            isActive: true,
+          }),
+        );
+        const identities = manager.getRepository(AuthIdentity);
+        await identities.save(
+          identities.create({
+            userId: created.id,
+            provider: AuthProvider.FACEBOOK,
+            providerUserId: profile.facebookId,
+            providerEmail: profile.email,
+            emailVerified: false,
+            displayName: profile.name,
+            avatarUrl: profile.avatarUrl,
+          }),
+        );
+        return created;
+      });
+    } catch (err) {
+      // A concurrent sign-up with the same email or Facebook account won.
+      if (
+        isPgError(err, PG_UNIQUE_VIOLATION, 'users_email_uk') ||
+        isPgError(err, PG_UNIQUE_VIOLATION, 'auth_identities_provider_account_uk')
+      ) {
+        throw new ConflictException('Account already exists, sign in again');
+      }
+      throw err;
+    }
+
+    await this.issueOtp(user, OtpPurpose.EMAIL_VERIFY);
+    this.logger.log(`Facebook sign-up, awaiting email verification: user=${user.id}`);
+    return {
+      message:
+        'Account created. Verify your email with the code we sent, then sign in with Facebook again.',
+    };
   }
 
   private issueToken(user: User) {

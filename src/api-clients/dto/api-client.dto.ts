@@ -1,3 +1,5 @@
+import { PageResponseDto } from '../../common/dto/page-response.dto';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
@@ -72,12 +74,12 @@ export class ApiClientWithKeyResponseDto extends ApiClientResponseDto {
   apiKey: string;
 }
 
-export class ApiClientPageResponseDto {
-  @ApiProperty({ type: [ApiClientResponseDto] }) items: ApiClientResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class ApiClientPageResponseDto extends PageResponseDto(ApiClientResponseDto) {}
+
+export const API_CLIENT_SORT_FIELDS = ['name', 'createdAt'] as const;
+export type ApiClientSortField = (typeof API_CLIENT_SORT_FIELDS)[number];
+
+export class ApiClientQueryDto extends SortablePaginationQueryDto(API_CLIENT_SORT_FIELDS, 'name') {}
 
 /** Never includes api_key_hash. */
 export function toApiClientResponse(c: ApiClient): ApiClientResponseDto {

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import {
   AttendanceMethod,
   BookingEventType,
@@ -94,19 +95,7 @@ export class BookingGroupResponseDto {
   bookings: BookingResponseDto[];
 }
 
-export class PaginatedBookingsResponseDto {
-  @ApiProperty({ type: [BookingResponseDto] })
-  items: BookingResponseDto[];
-
-  @ApiProperty()
-  page: number;
-
-  @ApiProperty()
-  limit: number;
-
-  @ApiProperty()
-  total: number;
-}
+export class PaginatedBookingsResponseDto extends PageResponseDto(BookingResponseDto) {}
 
 export class BookingEventResponseDto {
   @ApiProperty({ enum: BookingEventType })

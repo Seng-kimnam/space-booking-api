@@ -46,6 +46,7 @@ class FakeRolesRepository {
         return qb;
       },
       orderBy: () => qb,
+      addOrderBy: () => qb,
       skip: (n: number) => ((skip = n), qb),
       take: (n: number) => ((take = n), qb),
       getManyAndCount: async (): Promise<[Role[], number]> => {
