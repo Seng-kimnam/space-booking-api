@@ -23,11 +23,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserOtp } from '../../users/entities/user-otp.entity';
 import { AuthIdentity } from '../entities/auth-identity.entity';
 import { AuthProvider } from '../../common/enums';
-import {
-  AdminRequestStatus,
-  User,
-  UserRole,
-} from '../../users/entities/user.entity';
+import { AdminRequestStatus, User } from '../../users/entities/user.entity';
+import { UserRole } from '../../common/enums';
 
 // Hand-rolled fakes (testing skill). Query-builder UPDATE/DELETE calls take
 // their `.raw` rows from a queue, in call order.

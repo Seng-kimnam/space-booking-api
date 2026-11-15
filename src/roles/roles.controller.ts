@@ -8,9 +8,6 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -26,31 +23,21 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthGuard } from '../auth/guards/auth.guard';
-import { Roles } from '../auth/decorators/role.decorator';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums';
+import { Secured } from '../common/decorators/secured.decorator';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { RoleIdParamDto, RoleQueryDto } from './dto/role-query.dto';
 import { RolePageResponseDto, RoleResponseDto } from './dto/role-response.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { RolesService } from './roles.service';
 
-// AuthGuard (valid JWT -> 401) then RolesGuard (ADMIN only -> 403).
+// @Secured: AuthGuard (valid JWT -> 401) then RolesGuard (ADMIN or SUPER_ADMIN, else 403).
 // Per-controller pipe because there is no global one yet; drop it when one is added.
 @ApiTags('Roles')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
-@ApiForbiddenResponse({ description: 'Caller is not an ADMIN' })
-@UseGuards(AuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
+@ApiForbiddenResponse({ description: 'Caller is not an ADMIN or SUPER_ADMIN' })
+@Secured(UserRole.ADMIN)
 @Controller('admin/roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}

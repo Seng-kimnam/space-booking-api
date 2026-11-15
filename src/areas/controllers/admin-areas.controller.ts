@@ -7,10 +7,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  UseGuards,
-  UseInterceptors,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -25,10 +21,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthGuard } from '../../auth/guards/auth.guard';
-import { Roles } from '../../auth/decorators/role.decorator';
-import { RolesInterceptor } from '../../auth/interceptors/roles.interceptor';
 import { UserRole } from '../../common/enums';
+import { Secured } from '../../common/decorators/secured.decorator';
 import {
   AreaResponseDto,
   CreateAreaDto,
@@ -42,16 +36,7 @@ import { AreasService } from '../services/areas.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse()
 @ApiForbiddenResponse()
-@UseGuards(AuthGuard)
-@UseInterceptors(RolesInterceptor)
-@Roles(UserRole.ADMIN)
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
+@Secured(UserRole.ADMIN)
 @Controller('admin')
 export class AdminAreasController {
   constructor(private readonly areas: AreasService) {}

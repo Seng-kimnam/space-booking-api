@@ -1,18 +1,14 @@
-import { applyDecorators, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
+import { applyDecorators, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../auth/guards/auth.guard';
 import { Roles } from '../../auth/decorators/role.decorator';
-import { RolesInterceptor } from '../../auth/interceptors/roles.interceptor';
+import { RolesGuard } from '../guards/roles.guard';
 import { UserRole } from '../enums';
 
 /**
- * JWT auth + role check + DTO validation in one decorator, the same stack the
- * seats controllers apply by hand. Remove once the app has global guards/pipes.
- * A method-level @Roles(...) still overrides the class-level roles.
+ * The one way to protect a route: JWT auth (AuthGuard), then the role check
+ * (RolesGuard; SUPER_ADMIN also passes ADMIN routes). `@Secured()` with no
+ * roles = any signed-in user. A method-level @Roles(...) overrides the
+ * class-level roles. DTO validation is the global ValidationPipe (main.ts).
  */
 export const Secured = (...roles: UserRole[]) =>
-  applyDecorators(
-    UseGuards(AuthGuard),
-    UseInterceptors(RolesInterceptor),
-    Roles(...roles),
-    UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })),
-  );
+  applyDecorators(UseGuards(AuthGuard, RolesGuard), Roles(...roles));

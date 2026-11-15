@@ -43,7 +43,7 @@ import { BookingRulesService } from './booking-rules.service';
 // Same message for unknown, used, revoked and expired codes: don't help guessing.
 const INVALID_QR = 'This QR code is invalid, already used or expired';
 
-// SUPER_ADMIN passes ADMIN routes (RolesInterceptor), so it is staff here too.
+// SUPER_ADMIN passes ADMIN routes (RolesGuard), so it is staff here too.
 const isStaff = (actor: AuthUser): boolean =>
   actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
 

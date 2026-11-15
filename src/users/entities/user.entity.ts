@@ -10,12 +10,6 @@ import {
 } from 'typeorm';
 import { Role } from '../../roles/entities/role.entity';
 
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  SUPER_ADMIN = 'SUPER_ADMIN',
-  USER = 'USER',
-}
-
 export enum AdminRequestStatus {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
