@@ -14,10 +14,12 @@ jobs:
       postgres:
         # Same major version as infrastructure/docker (production uses 17).
         image: postgres:17-alpine
+        # No password in the repo: the throwaway CI database trusts
+        # connections (it is only reachable from this job's runner).
         env:
           POSTGRES_USER: sb_test
-          POSTGRES_PASSWORD: sb_test
           POSTGRES_DB: space_booking_db_test
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -33,13 +35,20 @@ jobs:
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
       DB_USERNAME: sb_test
-      DB_PASSWORD: sb_test
+      # Empty: the service above uses trust auth (env validation only needs a string).
+      DB_PASSWORD: ''
       DB_NAME: space_booking_db_test
-      JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+      # JWT_SECRET is generated per run in the first step, never committed.
       # Empty = RabbitMQ disabled (outbox rows just stay unpublished).
       RABBITMQ_URL: ''
 
     steps:
+      - name: Generate a throwaway JWT secret
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "JWT_SECRET=$secret" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
