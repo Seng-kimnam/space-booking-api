@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { AccountStatusService } from './account-status.service';
-import { User, UserRole } from './entities/user.entity';
+import { User } from '../entities/user.entity';
+import { UserRole } from '../../common/enums';
 
 // docs/auth.md M3: who may suspend whom, and what suspension does.
 

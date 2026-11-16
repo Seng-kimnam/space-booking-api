@@ -8,11 +8,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
-import type { NoShowCounterPort } from '../bookings/bookings.ports';
+import type { NoShowCounterPort } from '../../bookings/bookings.ports';
 import {
   ActivityPageResponseDto,
   BookingSummaryDto,
   ListUsersQueryDto,
+  type UserSortField,
   MyProfileResponseDto,
   NotificationPageResponseDto,
   toActivity,
@@ -25,32 +26,40 @@ import {
   UserDetailResponseDto,
   UserPageResponseDto,
   UserStatsResponseDto,
-} from './dto/user.dto';
-import { User } from './entities/user.entity';
+} from '../dto/user.dto';
+import { User } from '../entities/user.entity';
 import {
   LINKED_ACCOUNTS,
   USER_BOOKINGS,
   USER_NOTIFICATIONS,
-} from './users.ports';
+} from '../users.ports';
 import type {
   LinkedAccountsPort,
   UserBookingsPort,
   UserNotificationsPort,
-} from './users.ports';
+} from '../users.ports';
 
-/** Escapes LIKE wildcards so `q` is matched literally. */
-const escapeLike = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  escapeLike,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
+
+const USER_SORT: SortSpec<UserSortField> = {
+  columns: { createdAt: 'u.createdAt', name: 'u.name', email: 'u.email' },
+  default: { sortBy: 'createdAt', order: SortOrder.DESC },
+  tieBreaker: 'u.id',
+};
 
 function bound<T>(port: T | undefined, name: string): T {
   if (!port) throw new InternalServerErrorException(`${name} is not bound`);
   return port;
 }
 
-/**
- * Account reads (own profile, admin lookups and stats), own-profile edits,
- * and the no-show counter (NO_SHOW_COUNTER port, bookings expire job).
- * Booking, notification and linked-account data come through users.ports.ts.
- */
+/** Profile and admin reads, profile edits, and the NO_SHOW_COUNTER port. */
 @Injectable()
 export class UsersService implements NoShowCounterPort {
   private readonly logger = new Logger(UsersService.name);
@@ -62,8 +71,6 @@ export class UsersService implements NoShowCounterPort {
     @Optional() @Inject(USER_NOTIFICATIONS) private readonly notifications?: UserNotificationsPort,
     @Optional() @Inject(LINKED_ACCOUNTS) private readonly links?: LinkedAccountsPort,
   ) {}
-
-  // ------------------------------------------------------------ own account
 
   async getMe(userId: string): Promise<MyProfileResponseDto> {
     return this.profile(await this.findOpen(userId));
@@ -85,7 +92,7 @@ export class UsersService implements NoShowCounterPort {
     return this.profile(saved);
   }
 
-  /** Profile response for an already-loaded user (also after an email change). */
+  /** Profile for an already-loaded user. */
   async profile(user: User): Promise<MyProfileResponseDto> {
     const linked = await bound(this.links, 'LINKED_ACCOUNTS').forUser(user.id);
     return toMyProfile(user, linked);
@@ -95,8 +102,6 @@ export class UsersService implements NoShowCounterPort {
     await this.findOpen(userId);
     return toBookingSummary(await bound(this.bookings, 'USER_BOOKINGS').summary(userId));
   }
-
-  // -------------------------------------------- per-user history (self + admin)
 
   async notificationsOf(
     userId: string,
@@ -111,7 +116,7 @@ export class UsersService implements NoShowCounterPort {
       limit,
       adminView,
     );
-    return { items: res.items.map(toNotification), page, limit, total: res.total };
+    return toPageResponse({ page, limit }, res.items, res.total, toNotification);
   }
 
   async activityOf(
@@ -122,19 +127,16 @@ export class UsersService implements NoShowCounterPort {
   ): Promise<ActivityPageResponseDto> {
     await (adminView ? this.find(userId) : this.findOpen(userId));
     const res = await bound(this.bookings, 'USER_BOOKINGS').activity(userId, page, limit);
-    return { items: res.items.map(toActivity), page, limit, total: res.total };
+    return toPageResponse({ page, limit }, res.items, res.total, toActivity);
   }
-
-  // ------------------------------------------------------------------ admin
 
   async list(query: ListUsersQueryDto): Promise<UserPageResponseDto> {
     const qb = this.users
       .createQueryBuilder('u')
       .innerJoinAndSelect('u.role', 'r')
-      .orderBy('u.created_at', 'DESC')
-      .addOrderBy('u.id', 'ASC')
-      .skip((query.page - 1) * query.limit)
+      .skip(pageOffset(query))
       .take(query.limit);
+    applySort(qb, query, USER_SORT);
     qb.andWhere(query.deleted ? 'u.deleted_at IS NOT NULL' : 'u.deleted_at IS NULL');
     if (query.role) qb.andWhere('r.name = :role', { role: query.role });
     if (query.isActive !== undefined) qb.andWhere('u.is_active = :active', { active: query.isActive });
@@ -147,10 +149,10 @@ export class UsersService implements NoShowCounterPort {
       });
     }
     const [rows, total] = await qb.getManyAndCount();
-    return { items: rows.map(toUserResponse), page: query.page, limit: query.limit, total };
+    return toPageResponse(query, rows, total, toUserResponse);
   }
 
-  /** Admin detail: the account, its sign-in methods, links and booking stats. */
+  /** Account plus sign-in methods, links and booking stats. */
   async getDetail(id: string): Promise<UserDetailResponseDto> {
     const user = await this.find(id);
     const [linked, summary] = await Promise.all([
@@ -192,26 +194,22 @@ export class UsersService implements NoShowCounterPort {
     return { ...counts, byRole, topNoShows };
   }
 
-  // ------------------------------------------------------------------ ports
-
-  /** users.no_show_count + 1, on the caller's transaction (NoShowCounterPort). */
+  /** NoShowCounterPort: runs on the caller's transaction. */
   async incrementNoShow(manager: EntityManager, userId: string): Promise<void> {
-    // Single atomic UPDATE: no read-modify-write race with a parallel expiry.
+    // Atomic UPDATE: no race with a parallel expiry.
     await manager.query('UPDATE users SET no_show_count = no_show_count + 1 WHERE id = $1', [
       userId,
     ]);
   }
 
-  // ---------------------------------------------------------------- helpers
-
-  /** Any account, closed ones included (admin lookups). */
+  /** Includes closed accounts. */
   private async find(id: string): Promise<User> {
     const user = await this.users.findOneBy({ id });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
 
-  /** The caller's own open account; a closed one is gone for them. */
+  /** Open accounts only. */
   private async findOpen(id: string): Promise<User> {
     const user = await this.find(id);
     if (user.deletedAt) throw new NotFoundException('User not found');

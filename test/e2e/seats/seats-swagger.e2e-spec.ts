@@ -79,15 +79,21 @@ describe('seats Swagger contract', () => {
     expect(queryNames(listOp)).toEqual([
       'areaId',
       'limit',
+      'order',
       'page',
       'placeId',
+      'search',
+      'sortBy',
       'status',
     ]);
     const byPlaceOp = readOp('/api/v1/places/{placeId}/seats', 'get');
     expect(queryNames(byPlaceOp)).toEqual([
       'areaId',
       'limit',
+      'order',
       'page',
+      'search',
+      'sortBy',
       'status',
     ]);
 
@@ -97,7 +103,8 @@ describe('seats Swagger contract', () => {
       const status = (op.parameters as Array<Record<string, any>>).find(
         (p) => p.in === 'query' && p.name === 'status',
       );
-      expect((status.schema as { enum: string[] }).enum).toEqual(statusEnum);
+      expect(status).toBeDefined();
+      expect((status!.schema as { enum: string[] }).enum).toEqual(statusEnum);
     }
   });
 

@@ -22,13 +22,13 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { CurrentAuthUser } from '../common/decorators/current-auth-user.decorator';
-import { Secured } from '../common/decorators/secured.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { UserRole } from '../common/enums';
-import type { AuthUser } from '../common/types/auth-user';
-import { AccountStatusService } from './account-status.service';
-import { AdminAccountsService } from './admin-accounts.service';
+import { CurrentAuthUser } from '../../common/decorators/current-auth-user.decorator';
+import { Secured } from '../../common/decorators/secured.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { UserRole } from '../../common/enums/index';
+import type { AuthUser } from '../../common/types/auth-user';
+import { AccountStatusService } from '../services/account-status.service';
+import { AdminAccountsService } from '../services/admin-accounts.service';
 import {
   ActivityPageResponseDto,
   AdminUpdateUserDto,
@@ -41,15 +41,10 @@ import {
   UserPageResponseDto,
   UserResponseDto,
   UserStatsResponseDto,
-} from './dto/user.dto';
-import { UsersService } from './users.service';
+} from '../dto/user.dto';
+import { UsersService } from '../services/users.service';
 
-/**
- * Account management for admins (docs/api-endpoints.md 8e-8p). RolesInterceptor
- * lets SUPER_ADMIN through ADMIN routes; which accounts each role may change
- * is decided in account-policy.ts (ADMIN: USERs; SUPER_ADMIN: USERs and ADMINs;
- * nobody: a SUPER_ADMIN or themselves). Reads are open to every admin.
- */
+/** Admin account management. Who may change whom: policies/account-policy.ts. */
 @ApiTags('Users')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
@@ -65,7 +60,7 @@ export class AdminUsersController {
     private readonly admin: AdminAccountsService,
   ) {}
 
-  // Declared before ':userId' so "stats" isn't parsed as an id.
+  // Must stay above ':userId'.
   @Get('stats')
   @ApiOperation({ summary: 'Account statistics for the dashboard' })
   @ApiOkResponse({ type: UserStatsResponseDto })

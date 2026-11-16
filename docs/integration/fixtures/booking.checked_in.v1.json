@@ -1,0 +1,53 @@
+{
+  "routingKey": "booking.checked_in",
+  "properties": {
+    "message_id": "4f2d9e2c-ae4d-4e4e-9f95-6f5d4c1b3e54",
+    "type": "booking.checked_in",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794276180,
+    "correlation_id": null,
+    "headers": {
+      "x-schema-version": "1"
+    }
+  },
+  "body": {
+    "id": "4f2d9e2c-ae4d-4e4e-9f95-6f5d4c1b3e54",
+    "type": "booking.checked_in",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-10T02:03:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "booking",
+      "id": "7d0e4c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f"
+    },
+    "data": {
+      "bookingId": "7d0e4c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+      "groupId": "3a91c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "userId": "44440000-0000-4000-8000-000000000002",
+      "seatId": "5f2c8e1d-9a0b-4c3d-8e4f-5a6b7c8d9e0f",
+      "placeId": "1b7d2e3f-4a5b-4c6d-8e7f-8a9b0c1d2e3f",
+      "source": "APP",
+      "status": "CHECKED_IN",
+      "startAt": "2026-11-10T02:00:00.000Z",
+      "endAt": "2026-11-10T04:00:00.000Z",
+      "previousStartAt": null,
+      "previousEndAt": null,
+      "actor": {
+        "userId": "44440000-0000-4000-8000-000000000002"
+      },
+      "cancelReason": null,
+      "occurredAt": "2026-11-10T02:03:00.000Z",
+      "external": {
+        "system": "library",
+        "placeId": "1",
+        "seatId": "57",
+        "memberId": null
+      }
+    }
+  }
+}

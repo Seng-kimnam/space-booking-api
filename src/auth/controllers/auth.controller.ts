@@ -9,7 +9,6 @@ import {
   Patch,
   Post,
   UseGuards,
-  UseInterceptors,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
@@ -24,7 +23,6 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from '../dto/auth.dto';
-import { AuthGuard } from '../guards/auth.guard';
 import {
   AuthThrottle,
   LOGIN_LIMITS,
@@ -33,11 +31,12 @@ import {
   REFRESH_LIMITS,
 } from '../config/auth-throttle';
 import { CurrentUser } from '../decorators/current-user.decorator';
-import { Roles } from '../decorators/role.decorator';
-import { RolesInterceptor } from '../interceptors/roles.interceptor';
-import { UserRole } from '../../users/entities/user.entity';
+import { UserRole } from '../../common/enums';
+import { Secured } from '../../common/decorators/secured.decorator';
 import { GoogleAuthGuard } from '../guards/google-auth.guard';
 import { GoogleProfile } from '../strategies/google.strategy';
+import { FacebookAuthGuard } from '../guards/facebook-auth.guard';
+import { FacebookProfile } from '../strategies/facebook.strategy';
 
 type JwtUser = {
   sub: string;
@@ -92,14 +91,14 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
+  @Secured()
   @Get('me')
   me(@CurrentUser() user: JwtUser) {
     return this.authService.getProfile(user.sub);
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
+  @Secured()
   @Patch('change-password')
   async changePassword(
     @CurrentUser() user: JwtUser,
@@ -126,32 +125,28 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
+  @Secured()
   @Post('logout')
   logout(@CurrentUser() user: JwtUser, @Body() dto: RefreshTokenDto) {
     return this.authService.logout(user.sub, dto.refreshToken);
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
+  @Secured()
   @Post('logout-all')
   logoutAll(@CurrentUser() user: JwtUser) {
     return this.authService.logoutAll(user.sub);
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
-  @UseInterceptors(RolesInterceptor)
-  @Roles(UserRole.SUPER_ADMIN)
+  @Secured(UserRole.SUPER_ADMIN)
   @Get('admin-requests')
   listAdminRequests(@CurrentUser() user: JwtUser) {
     return this.authService.listAdminRequests(user.sub);
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
-  @UseInterceptors(RolesInterceptor)
-  @Roles(UserRole.SUPER_ADMIN)
+  @Secured(UserRole.SUPER_ADMIN)
   @Post('admin-requests/:userId/approve')
   approveAdminRequest(
     @CurrentUser() user: JwtUser,
@@ -161,9 +156,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
-  @UseInterceptors(RolesInterceptor)
-  @Roles(UserRole.SUPER_ADMIN)
+  @Secured(UserRole.SUPER_ADMIN)
   @Post('admin-requests/:userId/reject')
   rejectAdminRequest(
     @CurrentUser() user: JwtUser,
@@ -173,9 +166,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @UseGuards(AuthGuard)
-  @UseInterceptors(RolesInterceptor)
-  @Roles(UserRole.ADMIN)
+  @Secured(UserRole.ADMIN)
   @Get('admin-only')
   adminOnly() {
     return { message: 'Admin access granted' };
@@ -195,5 +186,31 @@ export class AuthController {
   @ApiExcludeEndpoint()
   googleCallback(@Req() req: { user: GoogleProfile }) {
     return this.authService.loginWithGoogle(req.user);
+  }
+
+  // Step 1: redirects the browser to Facebook's consent screen
+  @Get('facebook')
+  @ApiExcludeEndpoint()
+  @UseGuards(FacebookAuthGuard)
+  // Below UseGuards on purpose: decorators apply bottom-up, so the
+  // throttler is registered (and runs) before the Facebook guard.
+  @AuthThrottle(LOGIN_LIMITS)
+  facebookLogin() {
+    return { message: 'Redirecting to Facebook for authentication...' };
+  }
+
+  // Step 2: Facebook redirects back here with a code
+  @Get('facebook/callback')
+  @ApiExcludeEndpoint()
+  @UseGuards(FacebookAuthGuard)
+  // Below UseGuards on purpose: decorators apply bottom-up, so the
+  // throttler is registered (and runs) before the Facebook guard.
+  @AuthThrottle(LOGIN_LIMITS)
+  facebookCallback(
+    @Req() req: { user: FacebookProfile },
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.loginWithFacebook(req.user, { ip, userAgent });
   }
 }

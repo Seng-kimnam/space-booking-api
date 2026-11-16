@@ -1,5 +1,5 @@
 import { DataSource } from 'typeorm';
-import { OtpPurpose } from '../common/enums';
+import { OtpPurpose } from '../../common/enums/index';
 import { OtpService } from './otp.service';
 
 function setup(consumedRows: { user_id: string }[] = []) {

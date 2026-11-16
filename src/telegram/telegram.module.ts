@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
-import { OtpService } from '../users/otp.service';
+import { OtpService } from '../users/services/otp.service';
 import { UsersModule } from '../users/users.module';
 import { TELEGRAM_LINK_CODES } from './telegram.ports';
 import { TelegramController } from './controllers/telegram.controller';

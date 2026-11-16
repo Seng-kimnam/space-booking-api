@@ -1,15 +1,28 @@
 {
   "routingKey": "identity.linked",
   "properties": {
+<<<<<<< HEAD
     "message_id": "44444444-4444-4444-8444-444444444444",
     "type": "identity.linked",
     "app_id": "space-booking",
     "user_id": "space-booking",
+=======
+    "message_id": "8d6b3c6a-e28b-4c8c-9d39-0d9b8a5f7c98",
+    "type": "identity.linked",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1795143600,
+    "correlation_id": null,
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
+<<<<<<< HEAD
     "id": "44444444-4444-4444-8444-444444444444",
     "type": "identity.linked",
     "version": 1,
@@ -25,6 +38,23 @@
       "memberId": "member-1",
       "linked": true,
       "changedAt": "2026-11-09T10:15:00.000Z"
+=======
+    "id": "8d6b3c6a-e28b-4c8c-9d39-0d9b8a5f7c98",
+    "type": "identity.linked",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-20T03:00:00.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "identity",
+      "id": "9e7c4d7b-f39c-4d9d-8e4a-1e0c9b6a8d09"
+    },
+    "data": {
+      "system": "library",
+      "memberId": "88",
+      "linked": true,
+      "changedAt": "2026-11-20T03:00:00.000Z"
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     }
   }
 }

@@ -13,7 +13,8 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import { UserRole } from '../../common/enums';
 import { AdminRequestStatus, User } from '../entities/user.entity';
 import type {
@@ -32,15 +33,14 @@ const toBool = ({ value }: { value: unknown }) =>
   value === 'true' ? true : value === 'false' ? false : value;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-/** Roles an admin can hand out. SUPER_ADMIN is only created by seed. */
+/** Roles an admin can assign (SUPER_ADMIN comes from the seed only). */
 export const ASSIGNABLE_ROLES = [UserRole.USER, UserRole.ADMIN] as const;
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-// ---------------------------------------------------------------- requests
+// Requests
 
-// Not PartialType: its @IsOptional also lets null through, and null on the
-// NOT NULL `name` column would reach Postgres as a 500. Only undefined means
-// "unchanged"; avatarUrl alone may be null (clears it).
+// Not PartialType: it would let `name: null` reach the NOT NULL column (500).
+// undefined = unchanged; only avatarUrl accepts null (clears it).
 export class UpdateMyProfileDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 100, example: 'John Doe' })
   @Transform(trim)
@@ -63,7 +63,7 @@ export class UpdateMyProfileDto {
   avatarUrl?: string | null;
 }
 
-/** Admin edit: the profile fields plus a no-show reset. */
+/** Profile fields plus a no-show reset. */
 export class AdminUpdateUserDto extends UpdateMyProfileDto {
   @ApiPropertyOptional({ description: 'true sets no_show_count back to 0' })
   @IsOptional()
@@ -128,7 +128,10 @@ export class ChangeRoleDto {
   role: AssignableRole;
 }
 
-export class ListUsersQueryDto extends PaginationQueryDto {
+export const USER_SORT_FIELDS = ['createdAt', 'name', 'email'] as const;
+export type UserSortField = (typeof USER_SORT_FIELDS)[number];
+
+export class ListUsersQueryDto extends SortablePaginationQueryDto(USER_SORT_FIELDS, 'createdAt') {
   @ApiPropertyOptional({ enum: UserRole })
   @IsOptional()
   @IsIn(Object.values(UserRole))
@@ -163,7 +166,7 @@ export class ListUsersQueryDto extends PaginationQueryDto {
   q?: string;
 }
 
-// --------------------------------------------------------------- responses
+// Responses
 
 export class MessageDto {
   @ApiProperty() message: string;
@@ -187,7 +190,7 @@ export class LinkedAccountsDto {
   @ApiProperty({ type: [ExternalLinkDto] }) external: ExternalLinkDto[];
 }
 
-/** Admin view of an account. Never includes the password hash or provider ids. */
+/** Admin view. Never includes the password hash or provider ids. */
 export class UserResponseDto {
   @ApiProperty({ format: 'uuid' }) id: string;
   @ApiProperty({ example: 'John Doe' }) name: string;
@@ -205,12 +208,7 @@ export class UserResponseDto {
   deletedAt: string | null;
 }
 
-export class UserPageResponseDto {
-  @ApiProperty({ type: [UserResponseDto] }) items: UserResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class UserPageResponseDto extends PageResponseDto(UserResponseDto) {}
 
 export class FavouritePlaceDto {
   @ApiProperty({ format: 'uuid' }) id: string;
@@ -278,12 +276,7 @@ export class NotificationResponseDto {
   @ApiProperty({ format: 'date-time' }) createdAt: string;
 }
 
-export class NotificationPageResponseDto {
-  @ApiProperty({ type: [NotificationResponseDto] }) items: NotificationResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class NotificationPageResponseDto extends PageResponseDto(NotificationResponseDto) {}
 
 export class ActivityItemDto {
   @ApiProperty({ format: 'uuid' }) id: string;
@@ -297,12 +290,7 @@ export class ActivityItemDto {
   @ApiProperty({ format: 'date-time' }) createdAt: string;
 }
 
-export class ActivityPageResponseDto {
-  @ApiProperty({ type: [ActivityItemDto] }) items: ActivityItemDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class ActivityPageResponseDto extends PageResponseDto(ActivityItemDto) {}
 
 class RoleCountDto {
   @ApiProperty({ enum: UserRole }) role: string;
@@ -328,7 +316,7 @@ export class UserStatsResponseDto {
   @ApiProperty({ type: [TopNoShowDto] }) topNoShows: TopNoShowDto[];
 }
 
-// ----------------------------------------------------------------- mappers
+// Mappers
 
 export function toUserResponse(u: User): UserResponseDto {
   return {

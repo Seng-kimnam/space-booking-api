@@ -1,21 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsEnum,
   IsIn,
-  IsInt,
   IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
 import { BookingStatus, QrPurpose } from '../../common/enums';
+import { SortablePaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import type { BookingListView } from '../repositories/bookings.repository';
 import type { QrMode } from '../services/booking-qr.service';
 
@@ -80,36 +77,47 @@ export class BookingScopeQueryDto {
   scope?: 'booking' | 'group' = 'booking';
 }
 
-export class PaginationQueryDto {
-  @ApiPropertyOptional({ default: 1, minimum: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number = 1;
+export const BOOKING_SORT_FIELDS = ['startAt', 'createdAt'] as const;
+export type BookingSortField = (typeof BOOKING_SORT_FIELDS)[number];
 
-  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+/** Filters and sorting shared by the user's and the admin's booking lists. */
+export class BookingListQueryDto extends SortablePaginationQueryDto(
+  BOOKING_SORT_FIELDS,
+  'startAt',
+  'Default: createdAt DESC for view=all, startAt ASC for upcoming, startAt DESC for history and the admin list',
+) {
+  @ApiPropertyOptional({ enum: BookingStatus })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number = 20;
+  @IsEnum(BookingStatus)
+  status?: BookingStatus;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID('all')
+  placeId?: string;
+
+  @ApiPropertyOptional({
+    format: 'date-time',
+    description: 'Bookings overlapping [from, to), UTC ISO 8601. Either side may be omitted.',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  from?: string;
+
+  @ApiPropertyOptional({ format: 'date-time', description: 'Exclusive; not before `from`' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  to?: string;
 }
 
-export class MyBookingsQueryDto extends PaginationQueryDto {
+export class MyBookingsQueryDto extends BookingListQueryDto {
   @ApiPropertyOptional({ enum: ['all', 'upcoming', 'history'], default: 'all' })
   @IsOptional()
   @IsIn(['all', 'upcoming', 'history'])
   view?: BookingListView = 'all';
 }
 
-export class AdminBookingsQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: BookingStatus })
-  @IsOptional()
-  @IsEnum(BookingStatus)
-  status?: BookingStatus;
-
+export class AdminBookingsQueryDto extends BookingListQueryDto {
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
   @IsUUID('all')
@@ -119,21 +127,6 @@ export class AdminBookingsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID('all')
   seatId?: string;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID('all')
-  placeId?: string;
-
-  @ApiPropertyOptional({ description: 'Bookings overlapping [from, to), ISO 8601' })
-  @IsOptional()
-  @IsISO8601({ strict: true })
-  from?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsISO8601({ strict: true })
-  to?: string;
 }
 
 export class QrCodeQueryDto {

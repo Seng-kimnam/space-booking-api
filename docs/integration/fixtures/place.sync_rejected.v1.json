@@ -1,20 +1,40 @@
 {
   "routingKey": "place.sync_rejected",
   "properties": {
+<<<<<<< HEAD
     "message_id": "33333333-3333-4333-8333-333333333333",
     "type": "place.sync_rejected",
     "app_id": "space-booking",
     "user_id": "space-booking",
+=======
+    "message_id": "7c5a2b5f-d17a-4b7b-8c28-9c8a7f4e6b87",
+    "type": "place.sync_rejected",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794215101,
+    "correlation_id": null,
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
+<<<<<<< HEAD
     "id": "33333333-3333-4333-8333-333333333333",
     "type": "place.sync_rejected",
     "version": 1,
     "source": "space-booking",
     "occurredAt": "2026-11-09T10:15:00.000Z",
+=======
+    "id": "7c5a2b5f-d17a-4b7b-8c28-9c8a7f4e6b87",
+    "type": "place.sync_rejected",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-09T09:05:01.000Z",
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "correlationId": null,
     "subject": {
       "type": "place",
@@ -23,12 +43,21 @@
     "data": {
       "placeId": "1",
       "revision": 43,
+<<<<<<< HEAD
       "code": "INVALID_TIMEZONE",
       "message": "Unknown time zone",
       "details": [
         {
           "path": "timezone",
           "value": "Mars/Olympus"
+=======
+      "code": "SEAT_LABEL_CONFLICT",
+      "message": "Seat label RR-12 is used twice",
+      "details": [
+        {
+          "path": "seats[4].label",
+          "value": "RR-12"
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
         }
       ]
     }

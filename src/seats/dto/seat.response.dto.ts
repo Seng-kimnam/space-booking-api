@@ -1,3 +1,4 @@
+import { PageResponseDto } from '../../common/dto/page-response.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { SeatStatus } from '../../common/enums';
 import { Seat } from '../entities/seat.entity';
@@ -14,12 +15,7 @@ export class SeatResponseDto {
   @ApiProperty({ format: 'date-time' }) updatedAt: string;
 }
 
-export class SeatPageResponseDto {
-  @ApiProperty({ type: [SeatResponseDto] }) items: SeatResponseDto[];
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() total: number;
-}
+export class SeatPageResponseDto extends PageResponseDto(SeatResponseDto) {}
 
 // Explicit copy so internal fields (deletedAt, relations) never leak.
 export function toSeatResponse(seat: Seat): SeatResponseDto {

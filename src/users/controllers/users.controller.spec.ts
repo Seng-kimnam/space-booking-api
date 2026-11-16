@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthGuard } from '../auth/guards/auth.guard';
-import { AuthService } from '../auth/services/auth.service';
-import { SessionsService } from '../auth/services/sessions.service';
-import { AccountStatusService } from './account-status.service';
-import { AdminAccountsService } from './admin-accounts.service';
+import { AuthGuard } from '../../auth/guards/auth.guard';
+import { AuthService } from '../../auth/services/auth.service';
+import { SessionsService } from '../../auth/services/sessions.service';
+import { AccountStatusService } from '../services/account-status.service';
+import { AdminAccountsService } from '../services/admin-accounts.service';
 import { AdminUsersController } from './admin-users.controller';
 import { UsersController } from './users.controller';
-import { UsersService } from './users.service';
+import { UsersService } from '../services/users.service';
 
 describe('Users controllers', () => {
   let module: TestingModule;

@@ -89,6 +89,17 @@ describe('RolesGuard', () => {
     expect(guard(['ADMIN']).canActivate(ctx({ role: 'ADMIN' }))).toBe(true);
   });
 
+  it('lets SUPER_ADMIN through ADMIN routes, but not USER-only routes', () => {
+    expect(guard(['ADMIN']).canActivate(ctx({ role: 'SUPER_ADMIN' }))).toBe(true);
+    expect(() => guard(['USER']).canActivate(ctx({ role: 'SUPER_ADMIN' }))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('allows any signed-in caller with @Secured() (empty roles)', () => {
+    expect(guard([]).canActivate(ctx({ role: 'USER' }))).toBe(true);
+  });
+
   it.each([
     ['wrong role', { role: 'USER' }],
     ['no role', {}],

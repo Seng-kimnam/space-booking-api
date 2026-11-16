@@ -9,7 +9,14 @@ import { Repository } from 'typeorm';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../common/utils/db-errors';
 import { UserRole } from '../common/enums';
 import { CreateRoleDto } from './dto/create-role.dto';
-import { RoleQueryDto } from './dto/role-query.dto';
+import { RoleQueryDto, type RoleSortField } from './dto/role-query.dto';
+import { SortOrder } from '../common/dto/pagination-query.dto';
+import {
+  applySort,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../common/utils/pagination';
 import { RolePageResponseDto, RoleResponseDto } from './dto/role-response.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { Role } from './entities/role.entity';
@@ -20,6 +27,12 @@ export const PROTECTED_ROLES: readonly string[] = Object.values(UserRole);
 
 /** Escapes LIKE wildcards so the search text is matched literally. */
 const likeLiteral = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
+
+const ROLE_SORT: SortSpec<RoleSortField> = {
+  columns: { id: 'role.id', name: 'role.name' },
+  default: { sortBy: 'id', order: SortOrder.ASC },
+  tieBreaker: 'role.id',
+};
 
 @Injectable()
 export class RolesService {
@@ -48,17 +61,11 @@ export class RolesService {
     // Names are stored uppercase (CreateRoleDto), and search is uppercased too.
     if (query.search)
       qb.where('role.name LIKE :search', { search: likeLiteral(query.search) });
-    const [rows, total] = await qb
-      .orderBy('role.id', 'ASC')
-      .skip((query.page - 1) * query.limit)
+    const [rows, total] = await applySort(qb, query, ROLE_SORT)
+      .skip(pageOffset(query))
       .take(query.limit)
       .getManyAndCount();
-    return {
-      items: rows.map((role) => RoleResponseDto.from(role)),
-      page: query.page,
-      limit: query.limit,
-      total,
-    };
+    return toPageResponse(query, rows, total, (role) => RoleResponseDto.from(role));
   }
 
   async findOne(id: number): Promise<Role> {

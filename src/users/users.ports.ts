@@ -1,30 +1,27 @@
 import type { EntityManager } from 'typeorm';
 
 /**
- * Data the users module shows or changes but doesn't own. Bookings, telegram
- * and notifications import UsersModule, so users can't import them back
- * (docs/project-structure.md section 3). The tokens are bound with useExisting
- * by the owning side:
- *   USER_BOOKINGS      -> UserBookingsService     (BookingsBindingsModule)
+ * Data users needs from modules that import it (so it can't import them):
+ *   USER_BOOKINGS      -> UserBookingsService      (BookingsBindingsModule)
  *   USER_NOTIFICATIONS -> UserNotificationsService (UsersBindingsModule)
  *   LINKED_ACCOUNTS    -> LinkedAccountsService    (UsersBindingsModule)
- * Injected @Optional() so unit and partial e2e modules compile without them.
+ * Injected @Optional() so partial test modules still compile.
  */
 
 export interface UserBookingSummary {
-  /** Seat bookings (a multi-seat booking counts once per seat). */
+  /** Counted per seat. */
   total: number;
   upcoming: number;
   active: number;
   completed: number;
   cancelled: number;
   expired: number;
-  /** Hours of COMPLETED bookings. */
+  /** COMPLETED bookings only. */
   hoursBooked: number;
   favouritePlace: { id: string; name: string; bookings: number } | null;
 }
 
-/** Who caused a booking event, seen from the user being looked at. */
+/** Who caused the event, relative to the user viewed. */
 export type ActivityActor = 'SELF' | 'OTHER_USER' | 'API_CLIENT' | 'SYSTEM';
 
 export interface UserActivityItem {
@@ -32,7 +29,7 @@ export interface UserActivityItem {
   bookingId: string;
   type: string;
   actor: ActivityActor;
-  /** false when the user acted on someone else's booking (admin check-in). */
+  /** false = the user acted on someone else's booking. */
   ownBooking: boolean;
   placeName: string;
   seatLabel: string;
@@ -41,13 +38,9 @@ export interface UserActivityItem {
 
 export const USER_BOOKINGS = Symbol('USER_BOOKINGS');
 export interface UserBookingsPort {
-  /** CHECKED_IN or CHECKOUT_OVERDUE booking exists (can't close the account). */
+  /** Checked in or overdue; blocks account closure. */
   hasSeatInUse(manager: EntityManager, userId: string): Promise<boolean>;
-  /**
-   * Cancels every PENDING booking of the user on `manager`, with the normal
-   * cancellation alert, event and outbox row. `actorId` is the user (self
-   * delete) or the admin. Returns how many were cancelled.
-   */
+  /** Cancels all PENDING bookings on `manager` (normal alerts/events); returns the count. */
   cancelAllPending(
     manager: EntityManager,
     userId: string,
@@ -71,7 +64,7 @@ export interface UserNotificationItem {
   scheduledAt: Date;
   sentAt: Date | null;
   attempts: number;
-  /** Admin view only: the delivery error. */
+  /** Admin view only. */
   lastError?: string | null;
   createdAt: Date;
 }
@@ -88,7 +81,7 @@ export interface UserNotificationsPort {
 
 export interface LinkedAccounts {
   telegram: { linked: boolean; username: string | null; linkedAt: Date | null };
-  /** Partner (LMS) memberships linked to the account. */
+  /** LMS memberships. */
   external: { system: string; memberId: string; linkedAt: Date; eligible: boolean | null }[];
 }
 

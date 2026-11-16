@@ -4,8 +4,6 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -14,20 +12,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { AreaPageResponseDto } from '../dto/area.dto';
+import { AreaPageResponseDto, AreaQueryDto } from '../dto/area.dto';
 import { AreasService } from '../services/areas.service';
 
 // Per-controller pipe because there is no global one yet; drop it when one is added.
 // shortcut: Client `places:read` access (api-clients module) isn't wired yet; this is public.
 @ApiTags('Areas')
-@UsePipes(
-  new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }),
-)
 @Controller()
 export class AreasController {
   constructor(private readonly areas: AreasService) {}
@@ -39,7 +29,7 @@ export class AreasController {
   @ApiNotFoundResponse()
   list(
     @Param('placeId', ParseUUIDPipe) placeId: string,
-    @Query() query: PaginationQueryDto,
+    @Query() query: AreaQueryDto,
   ) {
     return this.areas.listByPlace(placeId, query);
   }

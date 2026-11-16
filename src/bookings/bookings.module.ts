@@ -7,7 +7,7 @@ import { PlaceRulesService } from '../places/services/place-rules.service';
 import { SeatsModule } from '../seats/seats.module';
 import { SeatsService } from '../seats/services/seats.service';
 import { UsersModule } from '../users/users.module';
-import { UsersService } from '../users/users.service';
+import { UsersService } from '../users/services/users.service';
 import { NO_SHOW_COUNTER, PLACE_RULES, SEAT_LOOKUP } from './bookings.ports';
 import { AdminBookingsController } from './controllers/admin-bookings.controller';
 import { AttendanceController } from './controllers/attendance.controller';

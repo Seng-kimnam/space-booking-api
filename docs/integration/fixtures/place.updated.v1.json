@@ -1,21 +1,42 @@
 {
   "routingKey": "place.updated",
   "properties": {
+<<<<<<< HEAD
     "message_id": "0b8f5a8e-6a0f-4f0a-9c51-2b1f0e7d9a10",
     "type": "place.updated",
     "app_id": "library",
     "user_id": "library",
+=======
+    "message_id": "af8d5e8c-0a4d-4eae-9f5b-2f1d0c7b9e1a",
+    "type": "place.updated",
+    "app_id": "library",
+    "user_id": "library",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794214800,
+    "correlation_id": "lms-trace-0042",
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
+<<<<<<< HEAD
     "id": "0b8f5a8e-6a0f-4f0a-9c51-2b1f0e7d9a10",
     "type": "place.updated",
     "version": 1,
     "source": "library",
     "occurredAt": "2026-11-09T10:15:00.000Z",
     "correlationId": null,
+=======
+    "id": "af8d5e8c-0a4d-4eae-9f5b-2f1d0c7b9e1a",
+    "type": "place.updated",
+    "version": 1,
+    "source": "library",
+    "occurredAt": "2026-11-09T09:00:00.000Z",
+    "correlationId": "lms-trace-0042",
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "subject": {
       "type": "place",
       "id": "1"
@@ -38,6 +59,39 @@
           "open": "08:00",
           "close": "20:00",
           "closesNextDay": false
+<<<<<<< HEAD
+=======
+        },
+        {
+          "weekday": 2,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 3,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 4,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 5,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+        },
+        {
+          "weekday": 6,
+          "open": "08:00",
+          "close": "20:00",
+          "closesNextDay": false
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
         }
       ],
       "closures": [
@@ -54,6 +108,17 @@
           "type": "READING_ROOM",
           "description": null,
           "status": "ACTIVE"
+<<<<<<< HEAD
+=======
+        },
+        {
+          "areaId": "4",
+          "name": "Quiet Zone",
+          "floor": "3",
+          "type": "QUIET_ZONE",
+          "description": "No phones",
+          "status": "ACTIVE"
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
         }
       ],
       "seats": [
@@ -62,8 +127,32 @@
           "areaId": "3",
           "label": "RR-12",
           "features": {
+<<<<<<< HEAD
             "power": true
           },
+=======
+            "power": true,
+            "window": false
+          },
+          "status": "ACTIVE"
+        },
+        {
+          "seatId": "58",
+          "areaId": "3",
+          "label": "RR-13",
+          "features": {
+            "power": true
+          },
+          "status": "MAINTENANCE"
+        },
+        {
+          "seatId": "71",
+          "areaId": "4",
+          "label": "QZ-01",
+          "features": {
+            "desk": "large"
+          },
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
           "status": "ACTIVE"
         }
       ]

@@ -2,13 +2,21 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException } from
 import type { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
 import { appConfig } from '../../configuration/app.config';
 import { digestsEqual, generateApiKey, hashSecret, parseApiKey } from '../api-key';
 import type { ApiClientScope } from '../api-key';
 import {
   ApiClientPageResponseDto,
+  ApiClientQueryDto,
+  type ApiClientSortField,
   ApiClientWithKeyResponseDto,
   CreateApiClientDto,
   toApiClientResponse,
@@ -23,6 +31,12 @@ import type { AuthApiClient } from '../types';
  * once and stored as sha256 only (AGENTS.md section 6.8). Admin writes are
  * logged by id and name, never with the key.
  */
+const API_CLIENT_SORT: SortSpec<ApiClientSortField> = {
+  columns: { name: 'client.name', createdAt: 'client.createdAt' },
+  default: { sortBy: 'name', order: SortOrder.ASC },
+  tieBreaker: 'client.id',
+};
+
 @Injectable()
 export class ApiClientsService {
   private readonly logger = new Logger(ApiClientsService.name);
@@ -46,13 +60,12 @@ export class ApiClientsService {
     return { ...toApiClientResponse(client), apiKey: key.key };
   }
 
-  async list(query: PaginationQueryDto): Promise<ApiClientPageResponseDto> {
-    const [rows, total] = await this.clients.findAndCount({
-      order: { name: 'ASC', id: 'ASC' },
-      skip: (query.page - 1) * query.limit,
-      take: query.limit,
-    });
-    return { items: rows.map(toApiClientResponse), page: query.page, limit: query.limit, total };
+  async list(query: ApiClientQueryDto): Promise<ApiClientPageResponseDto> {
+    const [rows, total] = await applySort(this.clients.createQueryBuilder('client'), query, API_CLIENT_SORT)
+      .skip(pageOffset(query))
+      .take(query.limit)
+      .getManyAndCount();
+    return toPageResponse(query, rows, total, toApiClientResponse);
   }
 
   async get(id: string): Promise<ApiClientResponseDto> {

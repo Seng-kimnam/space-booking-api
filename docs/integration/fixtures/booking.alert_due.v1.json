@@ -1,15 +1,28 @@
 {
   "routingKey": "booking.alert_due",
   "properties": {
+<<<<<<< HEAD
     "message_id": "11111111-1111-4111-8111-111111111111",
     "type": "booking.alert_due",
     "app_id": "space-booking",
     "user_id": "space-booking",
+=======
+    "message_id": "5a3e0f3d-bf5e-4f5f-8a06-7a6e5d2c4f65",
+    "type": "booking.alert_due",
+    "app_id": "space-booking",
+    "user_id": "space-booking",
+    "content_type": "application/json",
+    "content_encoding": "utf-8",
+    "delivery_mode": 2,
+    "timestamp": 1794276301,
+    "correlation_id": null,
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
+<<<<<<< HEAD
     "id": "11111111-1111-4111-8111-111111111111",
     "type": "booking.alert_due",
     "version": 1,
@@ -31,6 +44,34 @@
       "dueAt": "2026-11-09T11:30:00.000Z",
       "occurredAt": "2026-11-09T11:30:00.000Z",
       "external": null
+=======
+    "id": "5a3e0f3d-bf5e-4f5f-8a06-7a6e5d2c4f65",
+    "type": "booking.alert_due",
+    "version": 1,
+    "source": "space-booking",
+    "occurredAt": "2026-11-10T02:05:01.000Z",
+    "correlationId": null,
+    "subject": {
+      "type": "booking",
+      "id": "7d0e4c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f"
+    },
+    "data": {
+      "bookingId": "7d0e4c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+      "groupId": "3a91c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "seatId": "5f2c8e1d-9a0b-4c3d-8e4f-5a6b7c8d9e0f",
+      "placeId": "1b7d2e3f-4a5b-4c6d-8e7f-8a9b0c1d2e3f",
+      "alertType": "LATE_CHECKIN",
+      "startAt": "2026-11-10T02:00:00.000Z",
+      "endAt": "2026-11-10T04:00:00.000Z",
+      "dueAt": "2026-11-10T02:05:00.000Z",
+      "occurredAt": "2026-11-10T02:05:01.000Z",
+      "external": {
+        "system": "library",
+        "placeId": "1",
+        "seatId": "57",
+        "memberId": null
+      }
+>>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     }
   }
 }
