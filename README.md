@@ -1,8 +1,8 @@
 # Space Booking API
 
-Backend for the **Online Space Booking System**: browse places (libraries, cafes, coworking), see live seat availability, reserve a seat before arriving, and get booking notifications.
+Backend for the **Online Space Booking System**: browse places (libraries, cafes, coworking), see live seat availability, reserve a seat before arriving, check in with a QR code, and get booking alerts by Telegram or email. It also integrates with the LibraFlow library system (LMS) over REST and RabbitMQ.
 
-Built with NestJS 12, TypeORM, PostgreSQL 17, Redis and Mailpit (local email).
+Built with NestJS 12, TypeORM, PostgreSQL 17, Redis, RabbitMQ and Mailpit (local email).
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Built with NestJS 12, TypeORM, PostgreSQL 17, Redis and Mailpit (local email).
 |---|---|---|
 | **Node.js** | **24.9 or newer** (Node 24 LTS) | See below. Pinned in `.nvmrc` and `package.json` → `engines` |
 | npm | 11+ (ships with Node 24) | The project uses `package-lock.json`; don't use yarn/pnpm |
-| Docker + Docker Compose v2 | recent | Runs PostgreSQL, pgAdmin, Redis and Mailpit locally |
+| Docker + Docker Compose v2 | recent | Runs PostgreSQL, pgAdmin, Redis, Mailpit, RabbitMQ and Grafana/Loki locally |
 
 ### Why Node 24.9+?
 
@@ -47,15 +47,21 @@ npm install
 # 2. Create your local env file and fill in values
 cp .env.example .env
 
-# 3. Start PostgreSQL, pgAdmin, Redis and Mailpit
+# 3. Start PostgreSQL, pgAdmin, Redis, Mailpit, RabbitMQ and monitoring
 docker compose --env-file .env -f infrastructure/docker/development/docker-compose.yml up -d
 
-# 4. Apply database migrations
+# 3b. First start only: create the RabbitMQ vhost and app users
+docker compose --env-file .env -f infrastructure/docker/development/docker-compose.yml exec rabbitmq sh /setup-dev.sh
+
+# 4. Apply database migrations, then load demo data (places, seats, users, the SUPER_ADMIN)
 npm run migration:run
+npm run seed
 
 # 5. Start the API in watch mode
 npm run start:dev
 ```
+
+RabbitMQ is optional: leave `RABBITMQ_URL` empty and the API runs without publishing or consuming events (outbox rows stay queued).
 
 | URL | What |
 |---|---|
@@ -63,6 +69,7 @@ npm run start:dev
 | http://localhost:3000/api/docs | Swagger UI (disabled when `NODE_ENV=production`) |
 | http://localhost:5050 | pgAdmin (server host: `db`, port `5432`) |
 | http://localhost:8025 | Mailpit inbox |
+| http://localhost:15672 | RabbitMQ management UI |
 | http://localhost:3001 | Grafana: logs via Loki (Explore → `{service_name="space-booking-api"}`) |
 
 ### Logs (Grafana + Loki + Alloy)
@@ -95,27 +102,54 @@ npm run migration:create -- src/database/migrations/AddSomething
 npm run migration:run
 npm run migration:show
 npm run migration:revert # local dev database only
+npm run seed             # demo data; each seeds/sql file runs once; refused in production
+
+# dev helpers
+npm run telegram:poll    # forward Telegram bot updates to the local webhook (no public tunnel needed)
+npm run format           # prettier
 ```
 
 ## Project structure
 
 ```text
 src/
-├── configuration/     # registerAs configs (app, database, redis, mail, logger, swagger), loaded globally
-├── logger/            # AppLogger: built-in ConsoleLogger + optional JSON file output
+├── auth/                # register, OTP, login, refresh, Google/Facebook sign-in, admin approval
+├── users/               # /users/me and /admin/users (account management)
+├── roles/               # roles table, /admin/roles
+├── places/ areas/ seats/
+├── bookings/            # booking, QR check-in/out, availability (no_double_booking constraint)
+├── notifications/       # alerts by Telegram and email
+├── telegram/            # bot linking and webhook
+├── jobs/                # expire bookings, overdue checkouts, notification sender, outbox relay
+├── messaging/           # RabbitMQ: outbox (publish), inbox (consume), message contract
+├── api-clients/         # API keys for other systems (X-API-Key + scopes)
+├── external-identities/ # user ↔ LMS member links and member standing
+├── integrations/        # LMS: place sync, account linking, HTTP client
+├── common/              # guards, decorators, DTO bases, enums, pagination
+├── configuration/       # registerAs configs + env validation, loaded globally
+├── logger/              # AppLogger: built-in ConsoleLogger + optional JSON file output
 ├── database/
-│   ├── migrations/    # TypeORM migrations (generated, never edited after merge)
-│   ├── seeds/
-│   └── data-source.ts # shared by the app and the TypeORM CLI
-├── app.controller.ts  # GET /health
+│   ├── migrations/      # TypeORM migrations (never edited after merge)
+│   ├── seeds/           # demo data (npm run seed)
+│   └── data-source.ts   # shared by the app and the TypeORM CLI
+├── app.controller.ts    # GET /health
 ├── app.module.ts
-└── main.ts            # global prefix /api/v1, Swagger
+└── main.ts              # global prefix /api/v1, Swagger
 infrastructure/
 ├── docker/{development,production}/docker-compose.yml
-└── monitoring/        # Loki, Alloy and Grafana config
+├── rabbitmq/            # setup-dev.sh (vhost and users)
+└── monitoring/          # Loki, Alloy and Grafana config
 ```
 
-Team conventions and domain rules (no double-booking, UTC timestamps, etc.) are in [`AGENTS.md`](AGENTS.md).
+## Documentation
+
+| File | What |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Team rules and domain rules (no double-booking, UTC timestamps, ...) |
+| [`docs/api-endpoints.md`](docs/api-endpoints.md) | Every endpoint, who can call it, async events, jobs |
+| [`docs/erd.md`](docs/erd.md), [`docs/schema/db.sql`](docs/schema/db.sql) | Database schema |
+| [`docs/project-structure.md`](docs/project-structure.md) | Module map and dependency rules |
+| [`docs/integration/summary.md`](docs/integration/summary.md) | One-page summary of the LMS integration (details in [`docs/integration/`](docs/integration/README.md)) |
 
 ## Known dependency advisories
 

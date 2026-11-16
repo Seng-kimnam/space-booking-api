@@ -26,7 +26,8 @@ src/
   telegram/              # telegram_accounts, bot client, webhook
   notifications/         # notifications, email + Telegram channels, dispatcher
   api-clients/           # api_clients, API-key guard
-  messaging/             # RabbitMQ, outbox_events, inbox_events, consumers
+  messaging/             # RabbitMQ, outbox_events, inbox_events, consumers, contract schemas
+  integrations/          # partner-specific code: http/ (outbound client), library/ (LMS place sync, LMS client)
   admin/                 # dashboard, occupancy, monitoring (read-only queries)
   jobs/                  # scheduled jobs (expire, overdue, dispatch, outbox relay)
 test/
@@ -38,7 +39,7 @@ test/
 
 | Module | Tables | Endpoints (docs/api-endpoints.md) | Exports |
 |---|---|---|---|
-| users | users, user_otps | none (profile is `/auth/me`) | `UsersService`, `OtpService` |
+| users | users, user_otps | `PATCH /users/me`, `/admin/users/*` (list, get, suspend, reactivate); profile read is `/auth/me` | `UsersService`, `OtpService` |
 | auth | refresh_tokens, auth_identities | §1 all `/auth/*`, `/auth/oauth/*`, `/auth/identities/*` | nothing (the JWT strategy is registered here; guards live in `common/`) |
 | places | places, place_opening_hours, place_closures, booking_policies | `/places`, `/places/:id`, `/admin/places/*` | `PlacesService`, `OpeningHoursService` (is the place open for a range, in its timezone), `BookingPoliciesService` |
 | areas | areas | `/places/:id/areas`, `/admin/places/:id/areas`, `/admin/areas/*` | `AreasService` |
@@ -47,11 +48,14 @@ test/
 | telegram | telegram_accounts | `/telegram/*`, `/webhooks/telegram` | `TelegramBotClient`, `TelegramAccountsService` |
 | notifications | notifications | none | `NotificationsService` (schedule / skip in a transaction) |
 | api-clients | api_clients | `/admin/api-clients/*` | `ApiKeyGuard`, `ApiClientsService` |
-| messaging | outbox_events, inbox_events | none | `OutboxService.add(manager, event)`, `InboxService.handleOnce(...)`, `RabbitPublisher` |
+| messaging | outbox_events, inbox_events | none | `OutboxService.add(manager, event)`, `InboxService.handleOnce(...)`, `RabbitPublisher`, `ConsumerRunner`, `SchemaValidator` |
+| integrations/library | (writes places, areas, seats during a sync: documented shortcut) | `/integrations/library/places/:placeId` (API key), `/admin/integrations/library/places/:placeId/resync` | `LibraryPlaceSyncService` |
 | admin | none (read-only) | §7 `/admin/dashboard`, `/admin/occupancy`, `/admin/bookings/active\|overdue\|no-shows`, `/admin/seats` | none |
 | jobs | none | none | none |
 
-**Why availability lives in `bookings`.** The availability endpoints are under `/seats/...`, but they live in `bookings` as `seat-availability.controller.ts`. They need the `tstzrange` overlap query, and AGENTS §7 keeps that logic in the bookings repository. `bookings` already imports `seats`, so putting them in `seats` would create a circular import.
+**Why availability logic lives in `bookings`.** The availability endpoints are under `/seats/...`. They need the `tstzrange` overlap query, and AGENTS §7 keeps that logic in the bookings repository; `bookings` already imports `seats`, so `seats` can't import it back. The routes are declared in `SeatsController` (so `GET /seats/available` is matched before `GET /seats/:seatId`, whose `ParseUUIDPipe` would otherwise answer 400) and delegate to the `SEAT_AVAILABILITY` port (`src/seats/seats.ports.ts`), implemented by `bookings/services/seat-availability.service.ts`.
+
+**Ports lower modules declare and `bookings` implements.** `places` and `seats` can't import `bookings`, so they declare a token and interface (`src/places/places.ports.ts` `PLACE_CHANGE_BOOKINGS`, `src/seats/seats.ports.ts` `SEAT_AVAILABILITY`) and inject it `@Optional()`. `BookingsBindingsModule` (global, `src/bookings/bookings-bindings.module.ts`) binds both with `useExisting`. `PLACE_CHANGE_BOOKINGS` cancels PENDING bookings that an admin seat or place change makes impossible, in the admin's own transaction.
 
 ## 3. Dependency graph (imports point one way, no cycles)
 
@@ -67,6 +71,7 @@ api-clients
 bookings -> seats, places, users, notifications, messaging
 admin -> bookings, seats, places
 jobs -> bookings, notifications, messaging
+integrations -> places, bookings, api-clients, messaging   (top layer; nothing imports it)
 ```
 
 Rules:
@@ -83,7 +88,6 @@ bookings/
     bookings.controller.ts            # USER: /bookings...
     admin-bookings.controller.ts      # ADMIN: /admin/bookings...
     attendance.controller.ts          # /check-in/scan, /check-out/scan, manual check-in/out
-    seat-availability.controller.ts   # /seats/available, /seats/:id/availability
   services/
     bookings.service.ts               # create, modify, extend, cancel (one transaction each)
     attendance.service.ts             # QR + manual check-in/out
