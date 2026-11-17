@@ -48,7 +48,7 @@ export class RegisterDto {
   name: string;
 
   @ApiProperty({
-    example: 3,
+    example: 2,
     description:
       'Role ID. USER registers normally; ADMIN requires SUPER_ADMIN approval.',
   })
