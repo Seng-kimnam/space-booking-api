@@ -4,14 +4,27 @@ import { join } from 'path';
 import { AppLogger } from './app-logger';
 import { requestIdMiddleware } from '../common/request-context';
 
-// WriteStream writes asynchronously; wait for pending writes to land.
-const flush = () => new Promise((resolve) => setTimeout(resolve, 50));
-
 const readLines = (file: string): Record<string, unknown>[] =>
   readFileSync(file, 'utf8')
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+// WriteStream writes asynchronously, and a fixed delay is not enough under a
+// loaded CI runner. Wait until all expected lines are complete before parsing.
+const waitForLines = async (file: string, count: number): Promise<Record<string, unknown>[]> => {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      const lines = readLines(file);
+      if (lines.length >= count) return lines;
+    } catch {
+      // The file may not exist yet or the last line may be half-written.
+    }
+    if (Date.now() >= deadline) return readLines(file);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+};
 
 describe('AppLogger', () => {
   let dir: string;
@@ -35,9 +48,8 @@ describe('AppLogger', () => {
 
     logger.log('hello', 'Bootstrap');
     logger.warn('careful', 'Bookings');
-    await flush();
 
-    const [first, second] = readLines(file);
+    const [first, second] = await waitForLines(file, 2);
     expect(first).toMatchObject({
       level: 'log',
       message: 'hello',
@@ -62,10 +74,9 @@ describe('AppLogger', () => {
       () => logger.log('inside', 'Bookings'),
     );
     logger.log('outside', 'Bookings');
-    await flush();
 
     expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', 'abc-123');
-    const [inside, outside] = readLines(file);
+    const [inside, outside] = await waitForLines(file, 2);
     expect(inside).toMatchObject({
       message: 'inside req=abc-123',
       requestId: 'abc-123',
@@ -86,10 +97,11 @@ describe('AppLogger', () => {
   });
 
   it('keeps console output when a file is configured', async () => {
-    const logger = new AppLogger({ file: join(dir, 'app.log') });
+    const file = join(dir, 'app.log');
+    const logger = new AppLogger({ file });
 
     logger.log('hello', 'Bootstrap');
-    await flush();
+    await waitForLines(file, 1);
 
     expect(stdout).toHaveBeenCalled();
   });
@@ -99,9 +111,8 @@ describe('AppLogger', () => {
     const logger = new AppLogger({ file });
 
     logger.error(new Error('boom'), 'Bookings');
-    await flush();
 
-    const [entry] = readLines(file);
+    const [entry] = await waitForLines(file, 1);
     expect(entry).toMatchObject({
       level: 'error',
       message: 'boom',

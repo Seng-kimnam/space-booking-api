@@ -1,3 +1,4 @@
+
 FROM node:24-bookworm-slim AS base
 WORKDIR /app
 
@@ -22,9 +23,18 @@ RUN npm run build
 # Production
 FROM base AS production
 ENV NODE_ENV=production
+
 COPY package*.json ./
 RUN npm ci --omit=dev
+
 COPY --from=build /app/dist ./dist
+
+# Create writable logs directory
+RUN mkdir -p /app/logs \
+    && chown node:node /app/logs
+
+# Run as non-root user
 USER node
+
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
