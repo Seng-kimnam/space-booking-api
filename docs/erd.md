@@ -46,6 +46,8 @@ erDiagram
         varchar name
         citext email UK
         varchar password_hash "NULL = social login only"
+        varchar google_id UK "Google sign-in"
+        citext pending_email "email change waiting for OTP"
         varchar avatar_url
         timestamptz email_verified_at
         boolean is_active
@@ -79,7 +81,7 @@ erDiagram
     USER_OTPS {
         uuid id PK
         uuid user_id FK
-        otp_purpose purpose "EMAIL_VERIFY | PASSWORD_RESET | TELEGRAM_LINK"
+        otp_purpose purpose "EMAIL_VERIFY | PASSWORD_RESET | TELEGRAM_LINK | EMAIL_CHANGE"
         varchar code_hash
         timestamptz expires_at
         timestamptz used_at
@@ -300,6 +302,8 @@ Unless stated, `id` is `uuid PK DEFAULT gen_random_uuid()`, `created_at`/`update
 | name | varchar(100) | NOT NULL |
 | email | citext | NOT NULL, UNIQUE |
 | password_hash | varchar(255) | NULL for users who only sign in with Google/Facebook; never returned or logged |
+| google_id | varchar(255) | NULL, UNIQUE (`UQ_users_google_id`). Google sign-in; Facebook links live in `auth_identities` |
+| pending_email | citext | NULL. New address during an email change; moved to `email` once its `EMAIL_CHANGE` OTP is confirmed |
 | avatar_url | varchar(500) | NULL (may be copied from the social profile) |
 | email_verified_at | timestamptz | NULL until OTP verified, or set at sign-up when the provider reports a verified email |
 | is_active | boolean | NOT NULL, default true |
@@ -362,8 +366,14 @@ Partial UNIQUE `(user_id, purpose) WHERE used_at IS NULL`: at most one live code
 | address | varchar(255) | NOT NULL |
 | lat, lng | double precision | NULL, `CHECK (lat BETWEEN -90 AND 90)`, `CHECK (lng BETWEEN -180 AND 180)` |
 | timezone | varchar(64) | NOT NULL, default `'Asia/Phnom_Penh'` (Cambodia, UTC+7), IANA name (validated in app) |
-| is_active | boolean | NOT NULL, default true |
+| is_active | boolean | NOT NULL, default true. Our go-live switch |
+| external_system | varchar(30) | NULL. Partner that manages the place (`library` = LMS) |
+| external_id | varchar(64) | NULL. Partner's place id |
+| external_revision | bigint | NULL. Last applied snapshot revision (`>= 0`) |
+| external_open | boolean | NULL. Partner has the place open for booking (LMS `status = ACTIVE AND bookingEnabled`) |
 | created_at, updated_at, deleted_at | | |
+
+`places_external_chk`: the four `external_*` columns are all NULL (our admins manage the place) or all set (partner-managed). Partial UNIQUE `places_external_uk (external_system, external_id) WHERE external_id IS NOT NULL`. A partner-managed place is bookable only when `is_active AND external_open`; its name, address, time zone, hours, closures, areas and seats come from the partner and admin edits to them are rejected with `409` (`docs/integration/lms-message-contract.md`).
 
 ### place_opening_hours
 No row for a weekday = closed that day.
@@ -412,9 +422,10 @@ One row per place, created with the place. Replaces hardcoded "15 minutes".
 | floor | varchar(30) | NULL |
 | description | text | NULL |
 | is_active | boolean | NOT NULL, default true |
+| external_id | varchar(64) | NULL. Partner's area id (partner-managed places only) |
 | created_at, updated_at, deleted_at | | |
 
-Partial UNIQUE `(place_id, name) WHERE deleted_at IS NULL`. UNIQUE `(id, place_id)` (target for the composite FK from seats).
+Partial UNIQUE `(place_id, name) WHERE deleted_at IS NULL`. UNIQUE `(id, place_id)` (target for the composite FK from seats). Partial UNIQUE `areas_place_external_uk (place_id, external_id) WHERE external_id IS NOT NULL` (soft-deleted rows included, so a returning area is restored).
 
 ### seats
 | Column | Type | Constraints |
@@ -424,9 +435,10 @@ Partial UNIQUE `(place_id, name) WHERE deleted_at IS NULL`. UNIQUE `(id, place_i
 | label | varchar(30) | NOT NULL |
 | features | jsonb | NOT NULL, default `'{}'` (power, window, desk size) |
 | status | seat_status | NOT NULL, default `ACTIVE` |
+| external_id | varchar(64) | NULL. Partner's seat id (partner-managed places only) |
 | created_at, updated_at, deleted_at | | |
 
-Partial UNIQUE `(place_id, label) WHERE deleted_at IS NULL`.
+Partial UNIQUE `(place_id, label) WHERE deleted_at IS NULL`. Partial UNIQUE `seats_place_external_uk (place_id, external_id) WHERE external_id IS NOT NULL` (soft-deleted rows included, so a returning seat is restored with its booking history).
 
 ### bookings
 | Column | Type | Constraints |
@@ -556,13 +568,43 @@ Messages we consume (RabbitMQ from other services, Telegram webhook updates). Us
 
 UNIQUE `(source, message_id)`: insert first; on conflict the message was already handled, ack and skip.
 
+### external_identities
+One of our users linked to their account in a partner system, created only by the explicit link flow (never by email).
+| Column | Type | Constraints |
+|---|---|---|
+| user_id | uuid | NOT NULL, FK -> users.id ON DELETE CASCADE |
+| external_system | varchar(30) | NOT NULL (`library` = LMS) |
+| external_user_id | varchar(64) | NOT NULL (LMS member id) |
+| client_id | uuid | NULL, FK -> api_clients.id ON DELETE SET NULL (client that started the link) |
+| linked_at | timestamptz | NOT NULL, default `now()` |
+| standing_eligible | boolean | NULL = no `member.standing_changed` received yet |
+| standing_reasons | text[] | NOT NULL, default `'{}'` |
+| standing_expiry_date | date | NULL; local date, expired = ineligible |
+| standing_evaluated_at | timestamptz | NULL; older standings are ignored |
+
+UNIQUE `external_identities_member_uk (external_system, external_user_id)`, UNIQUE `external_identities_user_uk (external_system, user_id)`: one member ↔ one user per system.
+
+### external_link_requests
+One-time link codes a partner requested for one of its members. Hash only, single use, short-lived.
+| Column | Type | Constraints |
+|---|---|---|
+| external_system | varchar(30) | NOT NULL |
+| external_user_id | varchar(64) | NOT NULL |
+| client_id | uuid | NULL, FK -> api_clients.id ON DELETE SET NULL |
+| code_hash | varchar(64) | NOT NULL, UNIQUE (sha256 hex) |
+| expires_at | timestamptz | NOT NULL |
+| used_at | timestamptz | NULL; set when used, or when a newer code replaces it |
+| created_at | timestamptz | NOT NULL, default `now()` |
+
+Index `external_link_requests_member_idx (external_system, external_user_id)`.
+
 ## 4. Enums
 
 | Enum | Values |
 |---|---|
 | role name | `SUPER_ADMIN`, `ADMIN`, `USER` (seeded in `roles`) |
 | auth_provider | `GOOGLE`, `FACEBOOK` |
-| otp_purpose | `EMAIL_VERIFY`, `PASSWORD_RESET`, `TELEGRAM_LINK` |
+| otp_purpose | `EMAIL_VERIFY`, `PASSWORD_RESET`, `TELEGRAM_LINK`, `EMAIL_CHANGE` |
 | place_type | `LIBRARY`, `CAFE`, `COWORKING`, `OTHER` |
 | seat_status | `ACTIVE`, `MAINTENANCE`, `UNAVAILABLE` |
 | booking_source | `APP`, `API_CLIENT`, `ADMIN` |
@@ -636,6 +678,7 @@ Additional CHECKs (full DDL in `docs/schema/db.sql`):
 - `bookings`: `check_in_method` set exactly when `checked_in_at` is set, `check_out_method` exactly when `checked_out_at` is set, `extension_count >= 0`.
 - `notifications`: `(channel = 'EMAIL') = (type IN ('EMAIL_VERIFY_OTP', 'PASSWORD_RESET_OTP'))`, `(status = 'SENT') = (sent_at IS NOT NULL)`, `attempts >= 0`.
 - `user_otps.attempts >= 0`, `outbox_events.attempts >= 0`.
+- `places_external_chk` (all four `external_*` columns NULL or all set), `places_external_revision_chk` (`external_revision >= 0`).
 - A `set_updated_at()` trigger on every table with `updated_at`, so raw SQL updates keep it correct too.
 
 The exclusion violation surfaces as Postgres error `23P01`; the bookings service maps it to `409 Conflict` for create, modify and extend.
@@ -660,6 +703,8 @@ The exclusion violation surfaces as Postgres error `23P01`; the bookings service
 | `notifications (scheduled_at) WHERE status = 'PENDING'` | Notification worker |
 | `notifications (user_id, created_at DESC)` | User's notifications |
 | `outbox_events (occurred_at) WHERE published_at IS NULL` | Outbox relay |
+| `places (external_system, external_id) WHERE external_id IS NOT NULL` (unique) | Find a partner place by its id (place sync) |
+| `areas (place_id, external_id)`, `seats (place_id, external_id)` `WHERE external_id IS NOT NULL` (unique) | Upsert partner areas and seats by id |
 
 ## 7. Derived values (never stored)
 
@@ -706,5 +751,5 @@ The exclusion violation surfaces as Postgres error `23P01`; the bookings service
 
 ## 10. Phase 2 (not in the first migration)
 
-- **external_identities** `(user_id, client_id, external_user_id, external_role, metadata, verified_at)`, UNIQUE `(client_id, external_user_id)`: map users of an integrating app (e.g. a library system member) to our users, and carry their external role. Add only when an integrating app books on behalf of its own users.
+- ~~external_identities~~: built (section 3), keyed by `external_system` rather than `client_id`, with the member's standing instead of a role.
 - **Per-role policy overrides** (e.g. members of an external system get longer bookings), built on `external_identities`.
