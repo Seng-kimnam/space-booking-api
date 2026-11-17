@@ -16,9 +16,9 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/health (GET)', () => {
+  it('/health/check (GET)', () => {
     return request(app.getHttpServer())
-      .get('/health')
+      .get('/health/check')
       .expect(200)
       .expect((res) => {
         expect(res.body.status).toBe('ok');

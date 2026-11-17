@@ -1,12 +1,6 @@
 {
   "routingKey": "member.standing_changed",
   "properties": {
-<<<<<<< HEAD
-    "message_id": "66666666-6666-4666-8666-666666666666",
-    "type": "member.standing_changed",
-    "app_id": "library",
-    "user_id": "library",
-=======
     "message_id": "b09e6f9d-1b5e-4fbf-8a6c-3a2e1d8c0f2b",
     "type": "member.standing_changed",
     "app_id": "library",
@@ -16,33 +10,11 @@
     "delivery_mode": 2,
     "timestamp": 1795219205,
     "correlation_id": null,
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
-<<<<<<< HEAD
-    "id": "66666666-6666-4666-8666-666666666666",
-    "type": "member.standing_changed",
-    "version": 1,
-    "source": "library",
-    "occurredAt": "2026-11-09T10:15:00.000Z",
-    "correlationId": null,
-    "subject": {
-      "type": "member",
-      "id": "member-1"
-    },
-    "data": {
-      "memberId": "member-1",
-      "eligible": true,
-      "reasons": [],
-      "accountStatus": "ACTIVE",
-      "membershipStatus": "ACTIVE",
-      "expiryDate": null,
-      "blockedUntil": null,
-      "evaluatedAt": "2026-11-09T10:15:00.000Z"
-=======
     "id": "b09e6f9d-1b5e-4fbf-8a6c-3a2e1d8c0f2b",
     "type": "member.standing_changed",
     "version": 1,
@@ -64,7 +36,6 @@
       "expiryDate": "2027-03-01",
       "blockedUntil": null,
       "evaluatedAt": "2026-11-21T00:00:05.000Z"
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     }
   }
 }

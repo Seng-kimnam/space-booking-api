@@ -1,12 +1,6 @@
 {
   "routingKey": "place.created",
   "properties": {
-<<<<<<< HEAD
-    "message_id": "55555555-5555-4555-8555-555555555555",
-    "type": "place.created",
-    "app_id": "library",
-    "user_id": "library",
-=======
     "message_id": "9e7c4d7b-f39c-4d9d-8e4a-1e0c9b6a8d09",
     "type": "place.created",
     "app_id": "library",
@@ -16,27 +10,17 @@
     "delivery_mode": 2,
     "timestamp": 1794211200,
     "correlation_id": "lms-trace-0001",
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "headers": {
       "x-schema-version": "1"
     }
   },
   "body": {
-<<<<<<< HEAD
-    "id": "55555555-5555-4555-8555-555555555555",
-    "type": "place.created",
-    "version": 1,
-    "source": "library",
-    "occurredAt": "2026-11-09T10:15:00.000Z",
-    "correlationId": null,
-=======
     "id": "9e7c4d7b-f39c-4d9d-8e4a-1e0c9b6a8d09",
     "type": "place.created",
     "version": 1,
     "source": "library",
     "occurredAt": "2026-11-09T08:00:00.000Z",
     "correlationId": "lms-trace-0001",
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
     "subject": {
       "type": "place",
       "id": "1"
@@ -44,11 +28,7 @@
     "data": {
       "placeId": "1",
       "code": "MAIN",
-<<<<<<< HEAD
-      "revision": 42,
-=======
       "revision": 1,
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
       "name": "LibraFlow Main Library",
       "description": null,
       "address": "Street 1, Phnom Penh",
@@ -63,8 +43,6 @@
           "open": "08:00",
           "close": "20:00",
           "closesNextDay": false
-<<<<<<< HEAD
-=======
         },
         {
           "weekday": 2,
@@ -95,7 +73,6 @@
           "open": "08:00",
           "close": "20:00",
           "closesNextDay": false
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
         }
       ],
       "closures": [
@@ -112,8 +89,6 @@
           "type": "READING_ROOM",
           "description": null,
           "status": "ACTIVE"
-<<<<<<< HEAD
-=======
         },
         {
           "areaId": "4",
@@ -122,7 +97,6 @@
           "type": "QUIET_ZONE",
           "description": "No phones",
           "status": "ACTIVE"
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
         }
       ],
       "seats": [
@@ -131,10 +105,6 @@
           "areaId": "3",
           "label": "RR-12",
           "features": {
-<<<<<<< HEAD
-            "power": true
-          },
-=======
             "power": true,
             "window": false
           },
@@ -156,7 +126,6 @@
           "features": {
             "desk": "large"
           },
->>>>>>> a5c75df03f804f5b9c7b650fe810441413406e33
           "status": "ACTIVE"
         }
       ]
