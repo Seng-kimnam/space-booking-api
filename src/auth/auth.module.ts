@@ -1,0 +1,50 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigType } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AuthController } from './controllers/auth.controller';
+import { AUTH_THROTTLERS } from './config/auth-throttle';
+import { AuthService } from './services/auth.service';
+import { AuthCleanupService } from './services/auth-cleanup.service';
+import { SessionsService } from './services/sessions.service';
+import { AuthGuard } from './guards/auth.guard';
+import { MailService } from './services/mail.service';
+import { jwtModuleOptions } from './config/jwt-options';
+import { authConfig } from '../configuration/auth.config';
+import { mailConfig } from '../configuration/mail.config';
+import { User } from '../users/entities/user.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { UserOtp } from '../users/entities/user-otp.entity';
+import { Role } from '../roles/entities/role.entity';
+import * as dotenv from 'dotenv';
+import { GoogleStrategy } from './strategies/google.strategy';
+import { FacebookStrategy } from './strategies/facebook.strategy';
+import { AuthIdentity } from './entities/auth-identity.entity';
+dotenv.config();
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([User, RefreshToken, UserOtp, Role, AuthIdentity]),
+    // MailService reads mail.*: loaded here so AuthModule works in any host
+    // module, including test modules that don't load every config.
+    ConfigModule.forFeature(mailConfig),
+    // From authConfig (validated env), not process.env: honours
+    // JWT_ACCESS_EXPIRES_IN and pins HS256 + issuer/audience (jwt-options.ts).
+    JwtModule.registerAsync({
+      // forFeature: AuthModule brings its own config, so it also works in
+      // test modules that don't load every config (e.g. the bookings e2e).
+      imports: [ConfigModule.forFeature(authConfig)],
+      inject: [authConfig.KEY],
+      useFactory: (auth: ConfigType<typeof authConfig>) =>
+        jwtModuleOptions(auth),
+    }),
+    // Rate limits for the public /auth routes. Not a global guard: only routes
+    // marked @AuthThrottle(...) in AuthController are throttled.
+    ThrottlerModule.forRoot({ throttlers: AUTH_THROTTLERS }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, AuthGuard, MailService, GoogleStrategy, FacebookStrategy, AuthCleanupService, SessionsService],
+  // JwtModule is re-exported so AuthGuard can resolve JwtService when used in importing modules.
+  exports: [AuthService, AuthCleanupService, SessionsService, AuthGuard, JwtModule],
+})
+export class AuthModule {}

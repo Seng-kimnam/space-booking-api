@@ -1,0 +1,79 @@
+// Production: the API runs in Docker and logs structured JSON to stdout
+// (LOG_FORMAT=json). Alloy reads container logs via the Docker socket.
+// Docs: https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.docker/
+
+// Only containers of this compose project.
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  // Default is 1m; shorter so new/restarted containers are picked up quickly.
+  refresh_interval = "10s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=space-booking-prod"]
+  }
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  labels        = { "env" = "production" }
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.nest_json.receiver]
+}
+
+// Parse Nest's ConsoleLogger JSON. Lines that aren't JSON (e.g. Postgres)
+// are passed through unchanged.
+loki.process "nest_json" {
+  stage.match {
+    selector = "{service_name=\"api\"}"
+
+    stage.json {
+      expressions = {
+        level     = "level",
+        context   = "context",
+        timestamp = "timestamp",
+      }
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+
+    stage.structured_metadata {
+      values = {
+        context = "",
+      }
+    }
+
+    stage.timestamp {
+      source = "timestamp"
+      format = "UnixMs"
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

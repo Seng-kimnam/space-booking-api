@@ -1,0 +1,143 @@
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { SortOrder } from '../../common/dto/pagination-query.dto';
+import {
+  applySort,
+  pageOffset,
+  type SortSpec,
+  toPageResponse,
+} from '../../common/utils/pagination';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../common/utils/db-errors';
+import {
+  assertNotPartnerManaged,
+  PlacesService,
+} from '../../places/services/places.service';
+import {
+  AreaPageResponseDto,
+  AreaQueryDto,
+  type AreaSortField,
+  CreateAreaDto,
+  toAreaResponse,
+  UpdateAreaDto,
+} from '../dto/area.dto';
+import { Area } from '../entities/area.entity';
+
+const AREA_NOT_FOUND = 'Area not found';
+
+const AREA_SORT: SortSpec<AreaSortField> = {
+  columns: { name: 'area.name', createdAt: 'area.createdAt' },
+  default: { sortBy: 'name', order: SortOrder.ASC },
+  tieBreaker: 'area.id',
+};
+
+@Injectable()
+export class AreasService {
+  // Forwards to AppLogger (main.ts). Admin writes are logged as an audit trail.
+  private readonly logger = new Logger(AreasService.name);
+
+  constructor(
+    @InjectRepository(Area) private readonly areas: Repository<Area>,
+    private readonly places: PlacesService,
+  ) {}
+
+  /** Public: active areas of an active place. 404 if the place isn't visible. */
+  async listByPlace(
+    placeId: string,
+    query: AreaQueryDto,
+  ): Promise<AreaPageResponseDto> {
+    await this.places.getActivePlace(placeId);
+    const qb = this.areas
+      .createQueryBuilder('area')
+      .where('area.placeId = :placeId AND area.isActive = true', { placeId });
+    const [rows, total] = await applySort(qb, query, AREA_SORT)
+      .skip(pageOffset(query))
+      .take(query.limit)
+      .getManyAndCount();
+    return toPageResponse(query, rows, total, toAreaResponse);
+  }
+
+  /** Admins may add areas to inactive places, not to deleted ones. */
+  async create(placeId: string, dto: CreateAreaDto): Promise<Area> {
+    assertNotPartnerManaged(await this.places.getPlace(placeId));
+    const area = await this.save(
+      this.areas.create({
+        placeId,
+        name: dto.name,
+        floor: dto.floor ?? null,
+        description: dto.description ?? null,
+        isActive: dto.isActive ?? undefined,
+      }),
+    );
+    this.logger.log(
+      `Area created: id=${area.id} place=${placeId} name=${area.name}`,
+    );
+    return area;
+  }
+
+  async update(areaId: string, dto: UpdateAreaDto): Promise<Area> {
+    const area = await this.findForAdmin(areaId);
+    assertNotPartnerManaged(await this.places.getPlace(area.placeId));
+    if (dto.name !== undefined) area.name = dto.name;
+    if (dto.floor !== undefined) area.floor = dto.floor;
+    if (dto.description !== undefined) area.description = dto.description;
+    if (dto.isActive !== undefined) area.isActive = dto.isActive;
+    const saved = await this.save(area);
+    const changed = Object.keys(dto).filter(
+      (k) => dto[k as keyof UpdateAreaDto] !== undefined,
+    );
+    this.logger.log(
+      `Area updated: id=${areaId} fields=${changed.join(',') || 'none'}`,
+    );
+    return saved;
+  }
+
+  /** Soft delete. 409 while non-deleted seats are still assigned to the area. */
+  async softDelete(areaId: string): Promise<void> {
+    const area = await this.findForAdmin(areaId);
+    assertNotPartnerManaged(await this.places.getPlace(area.placeId));
+    // shortcut: reads seats directly; areas can't import seats (seats -> areas in
+    // docs/project-structure.md section 3). A soft delete skips the seats FK, so
+    // without this a seat would keep pointing at a deleted area.
+    const [inUse] = await this.areas.manager.query(
+      'SELECT 1 FROM seats WHERE area_id = $1 AND deleted_at IS NULL LIMIT 1',
+      [areaId],
+    );
+    if (inUse) {
+      this.logger.warn(
+        `Area delete rejected: seats still assigned (id=${areaId})`,
+      );
+      throw new ConflictException(
+        'Area still has seats; move or delete them first',
+      );
+    }
+    await this.areas.softDelete(areaId);
+    this.logger.log(`Area deleted: id=${areaId} name=${area.name}`);
+  }
+
+  /** Not deleted, in a place that isn't deleted (inactive is fine for admins). */
+  private async findForAdmin(areaId: string): Promise<Area> {
+    const area = await this.areas
+      .createQueryBuilder('area')
+      .innerJoin('area.place', 'place', 'place.deletedAt IS NULL')
+      .where('area.id = :areaId', { areaId })
+      .getOne();
+    if (!area) throw new NotFoundException(AREA_NOT_FOUND);
+    return area;
+  }
+
+  private async save(area: Area): Promise<Area> {
+    try {
+      return await this.areas.save(area);
+    } catch (err) {
+      if (isPgError(err, PG_UNIQUE_VIOLATION, 'areas_place_name_uk'))
+        throw new ConflictException('Area name already exists in this place');
+      throw err;
+    }
+  }
+}

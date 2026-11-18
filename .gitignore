@@ -38,6 +38,10 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# local deployment keys — never commit private keys
+/deploy_key
+/deploy_key.pub
+
 # dotenv environment variable files
 .env
 .env.development.local
@@ -57,3 +61,5 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+.claude

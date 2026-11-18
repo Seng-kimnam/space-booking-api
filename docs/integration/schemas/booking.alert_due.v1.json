@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://space-booking.local/schemas/booking.alert_due.v1.json",
+  "title": "booking.alert_due data v1 (Space Booking -> partners)",
+  "type": "object",
+  "required": [
+    "bookingId",
+    "groupId",
+    "seatId",
+    "placeId",
+    "alertType",
+    "startAt",
+    "endAt",
+    "dueAt",
+    "occurredAt",
+    "external"
+  ],
+  "properties": {
+    "bookingId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "groupId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "seatId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "placeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "alertType": {
+      "enum": [
+        "LATE_CHECKIN",
+        "CHECKOUT_REMINDER",
+        "FORGOTTEN_CHECKOUT"
+      ]
+    },
+    "startAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "endAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dueAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "external": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Partner ids when the place is partner-managed, otherwise null. memberId stays null until account linking (phase 2).",
+      "required": [
+        "system",
+        "placeId",
+        "seatId",
+        "memberId"
+      ],
+      "properties": {
+        "system": {
+          "const": "library"
+        },
+        "placeId": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z_-]{1,64}$"
+        },
+        "seatId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z_-]{1,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memberId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z_-]{1,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

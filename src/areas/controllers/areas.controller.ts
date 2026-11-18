@@ -1,0 +1,36 @@
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AreaPageResponseDto, AreaQueryDto } from '../dto/area.dto';
+import { AreasService } from '../services/areas.service';
+
+// Per-controller pipe because there is no global one yet; drop it when one is added.
+// shortcut: Client `places:read` access (api-clients module) isn't wired yet; this is public.
+@ApiTags('Areas')
+@Controller()
+export class AreasController {
+  constructor(private readonly areas: AreasService) {}
+
+  @Get('places/:placeId/areas')
+  @ApiOperation({ summary: 'Active areas of a place' })
+  @ApiOkResponse({ type: AreaPageResponseDto })
+  @ApiBadRequestResponse()
+  @ApiNotFoundResponse()
+  list(
+    @Param('placeId', ParseUUIDPipe) placeId: string,
+    @Query() query: AreaQueryDto,
+  ) {
+    return this.areas.listByPlace(placeId, query);
+  }
+}
