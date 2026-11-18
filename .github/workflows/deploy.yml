@@ -45,6 +45,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
+            cd /my-app
             docker pull ghcr.io/seng-kimnam/space-booking-api:latest
             docker compose down
             docker compose up -d
